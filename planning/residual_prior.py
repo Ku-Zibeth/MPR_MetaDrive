@@ -18,9 +18,9 @@ def _mlp(input_dim: int, hidden_dims, output_dim: int) -> nn.Sequential:
 
 
 class ResidualTrajectoryPrior(nn.Module):
-    """Map one coarse-trajectory context to bounded ``[Δd,Δv,ΔT]``."""
+    """Map one coarse-trajectory context to bounded ``[Δd,Δv]``."""
 
-    residual_dim = 3
+    residual_dim = 2
 
     def __init__(
         self,
@@ -66,7 +66,7 @@ class ResidualTrajectoryPrior(nn.Module):
             residual_input.shape[0],
         }:
             raise ValueError(
-                "delta_bounds must be [3] or [B,3] and match residual_input batch size."
+                "delta_bounds must be [2] or [B,2] and match residual_input batch size."
             )
         if torch.any(bounds < 0):
             raise ValueError("delta_bounds must be non-negative.")
@@ -100,6 +100,10 @@ class ResidualTrajectoryPrior(nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         mean, log_std = self.distribution(residual_input)
         bounds = self._bounds_for(residual_input, delta_bounds)
+        if target_residual.shape != mean.shape:
+            raise ValueError(
+                f"target_residual must be {tuple(mean.shape)}, got {tuple(target_residual.shape)}."
+            )
         safe_bounds = bounds.clamp_min(torch.finfo(bounds.dtype).eps)
         normalized = (target_residual / safe_bounds).clamp(-0.999999, 0.999999)
         normalized = torch.where(bounds > 0, normalized, torch.zeros_like(normalized))
@@ -107,12 +111,18 @@ class ResidualTrajectoryPrior(nn.Module):
         inverse_variance = torch.exp(-2.0 * log_std)
         nll = 0.5 * ((raw_target - mean).square() * inverse_variance + 2.0 * log_std)
         nll = nll.sum(dim=-1).mean()
-        normalized_target = torch.where(
-            bounds > 0, target_residual / safe_bounds, torch.zeros_like(target_residual)
+        bounded_mean = torch.tanh(mean) * bounds
+        normalized_prediction = torch.where(
+            bounds > 0, bounded_mean / safe_bounds, torch.zeros_like(bounded_mean)
         )
-        regularization = normalized_target.square().sum(dim=-1).mean()
+        regularization = normalized_prediction.square().sum(dim=-1).mean()
         loss = nll + float(residual_reg_coef) * regularization
-        return loss, {"residual_nll": nll.detach(), "residual_reg": regularization.detach()}
+        return loss, {
+            "residual_nll": nll.detach(),
+            "residual_reg": regularization.detach(),
+            "bounded_mean": bounded_mean,
+            "regularization_loss": regularization,
+        }
 
 
 __all__ = ["ResidualTrajectoryPrior"]

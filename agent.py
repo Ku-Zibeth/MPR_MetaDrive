@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import warnings
 
 import torch
 
@@ -25,25 +24,38 @@ class MPRMPCAgent:
         self.residual_training_enabled = bool(training_cfg.get("enabled", True))
         self.target_every = max(1, int(training_cfg.get("target_every", 1)))
         self.learning_starts = max(0, int(training_cfg.get("learning_starts", 0)))
+        if self.learning_starts != int(planner.residual_start_step):
+            raise ValueError(
+                "residual_training.learning_starts must equal "
+                "mpr_mpc.stages.residual_start_step so execution and training align."
+            )
         self.updates_per_step = max(0, int(training_cfg.get("updates_per_step", 1)))
         debug_cfg = mapping(section(cfg, "mpr_mpc").get("debug"))
         self.debug_enabled = bool(debug_cfg.get("enabled", False))
         self.debug_every = max(1, int(debug_cfg.get("every", 100)))
         self.residual_learner = ResidualLearner(planner, training_cfg)
         self._planner_calls = 0
+        self.global_env_step = 0
+        self.best_eval_key = None
         self.last_plan = None
         self.last_target_metrics: dict[str, float] = {}
 
-    def act(self, obs, t0=False, eval_mode=False, task=None):
+    def set_global_step(self, step: int) -> None:
+        self.global_env_step = max(0, int(step))
+
+    def act(self, obs, t0=False, eval_mode=False, task=None, global_step=None):
         if not self.planner.enabled:
             return self.tdmpc_agent.act(
                 obs, t0=t0, eval_mode=eval_mode, task=task
             )
         if task is not None:
             raise ValueError("The current MetaDrive MPR-MPC integration is single-task only.")
+        step = self.global_env_step if global_step is None else int(global_step)
+        self.set_global_step(step)
         result = self.planner.plan(
             obs,
             self.env.unwrapped_metadrive.agent,
+            global_step=step,
             t0=t0,
             eval_mode=eval_mode,
         )
@@ -67,7 +79,8 @@ class MPRMPCAgent:
                 )
             should_generate = (
                 self.residual_training_enabled
-                and self._planner_calls >= self.learning_starts
+                and result.stage.use_residual
+                and step >= self.learning_starts
                 and self._planner_calls % self.target_every == 0
             )
             if should_generate:
@@ -80,7 +93,11 @@ class MPRMPCAgent:
 
     def update(self, buffer):
         info = dict(self.tdmpc_agent.update(buffer))
-        if self.planner.enabled and self.residual_training_enabled:
+        for key in ("consistency_loss", "reward_loss", "value_loss", "termination_loss"):
+            if key in info:
+                info[f"wm/{key}"] = info[key]
+        stage = self.planner.stage_for_step(self.global_env_step)
+        if self.planner.enabled and self.residual_training_enabled and stage.use_residual:
             residual_info = {}
             for _ in range(self.updates_per_step):
                 residual_info = self.residual_learner.update()
@@ -127,40 +144,53 @@ class MPRMPCAgent:
 
     def save(self, filepath) -> None:
         state = {
+            "format": "mpr_mpc_v1",
             "model": self.tdmpc_agent.model.state_dict(),
+            "tdmpc_optim": self.tdmpc_agent.optim.state_dict(),
+            "tdmpc_pi_optim": self.tdmpc_agent.pi_optim.state_dict(),
+            "tdmpc_scale": self.tdmpc_agent.scale.state_dict(),
+            "global_env_step": self.global_env_step,
+            "best_eval_key": self.best_eval_key,
             "mpr_mpc": {
                 "residual_prior": self.planner.residual_prior.state_dict(),
                 "residual_optimizer": self.residual_learner.optimizer.state_dict(),
                 "residual_update_steps": self.residual_learner.update_steps,
                 "planner_calls": self._planner_calls,
+                "residual_invalid_count": self.planner.residual_invalid_count,
+                "residual_attempt_count": self.planner.residual_attempt_count,
+                "mppi_call_count": self.planner.mppi_call_count,
+                "baseline_selected_count": self.planner.baseline_selected_count,
             },
         }
         torch.save(state, Path(filepath))
 
     def load(self, filepath, *, load_optimizer: bool = False) -> None:
         state = torch.load(filepath, map_location=self.device, weights_only=False)
+        if not isinstance(state, dict) or state.get("format") != "mpr_mpc_v1":
+            raise ValueError(
+                "Refusing to resume a non-MPR-MPC checkpoint. Start from scratch with "
+                "resume_checkpoint=null or provide an mpr_mpc_v1 checkpoint."
+            )
         self.tdmpc_agent.load(state)
         mpr_state = state.get("mpr_mpc") if isinstance(state, dict) else None
         if not mpr_state:
-            return
+            raise ValueError("MPR-MPC checkpoint is missing planner state.")
         prior_state = mpr_state.get("residual_prior")
-        current_state = self.planner.residual_prior.state_dict()
-        compatible = prior_state is not None and all(
-            key in current_state and current_state[key].shape == value.shape
-            for key, value in prior_state.items()
-        ) and set(prior_state) == set(current_state)
-        if compatible:
-            self.planner.residual_prior.load_state_dict(prior_state)
-        else:
-            warnings.warn(
-                "Skipping incompatible legacy MPR residual head; the current 518-D "
-                "head remains zero-mean initialized.",
-                RuntimeWarning,
-            )
-        if compatible and load_optimizer and "residual_optimizer" in mpr_state:
+        self.planner.residual_prior.load_state_dict(prior_state)
+        if load_optimizer:
+            self.tdmpc_agent.optim.load_state_dict(state["tdmpc_optim"])
+            self.tdmpc_agent.pi_optim.load_state_dict(state["tdmpc_pi_optim"])
+            self.tdmpc_agent.scale.load_state_dict(state["tdmpc_scale"])
             self.residual_learner.optimizer.load_state_dict(mpr_state["residual_optimizer"])
         self.residual_learner.update_steps = int(mpr_state.get("residual_update_steps", 0))
         self._planner_calls = int(mpr_state.get("planner_calls", 0))
+        self.global_env_step = int(state.get("global_env_step", 0))
+        best_key = state.get("best_eval_key")
+        self.best_eval_key = tuple(best_key) if best_key is not None else None
+        self.planner.residual_invalid_count = int(mpr_state.get("residual_invalid_count", 0))
+        self.planner.residual_attempt_count = int(mpr_state.get("residual_attempt_count", 0))
+        self.planner.mppi_call_count = int(mpr_state.get("mppi_call_count", 0))
+        self.planner.baseline_selected_count = int(mpr_state.get("baseline_selected_count", 0))
 
     def eval(self):
         self.tdmpc_agent.eval()

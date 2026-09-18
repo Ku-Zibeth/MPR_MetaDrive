@@ -19,9 +19,17 @@ class StructuredSelection:
 
 
 @dataclass(frozen=True)
+class PlanningStage:
+    name: str
+    use_residual: bool
+    use_mppi: bool
+
+
+@dataclass(frozen=True)
 class TrajectoryConsequence:
     reward_sequence: torch.Tensor
     terminal_q: torch.Tensor
+    terminal_q_std: torch.Tensor
     total_value: torch.Tensor
     terminal_latent: torch.Tensor
 
@@ -69,6 +77,7 @@ class MPRPlanResult:
     residual_valid: bool
     fallback_reason: str
     coarse_consequence: TrajectoryConsequence
+    stage: PlanningStage
     metrics: dict[str, float] = field(default_factory=dict)
     debug: dict[str, Any] = field(default_factory=dict)
 

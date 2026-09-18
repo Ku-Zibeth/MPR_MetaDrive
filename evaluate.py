@@ -75,7 +75,7 @@ def _render(env, result, episode: int, scenario: int, step: int) -> None:
                     f"{result.coarse_path.target_speed:.2f}/"
                     f"{result.coarse_path.horizon:.2f}"
                 ),
-                "residual d/v/T": "/".join(
+                "residual d/v": "/".join(
                     f"{float(value):+.2f}" for value in result.residual.cpu()
                 ),
                 "coarse/final J": (
@@ -164,6 +164,7 @@ def main(raw_cfg: DictConfig) -> None:
                 "risk_penalty": episode_risk_penalty,
                 "collision": float(info.get("crash", 0.0)),
                 "offroad": float(info.get("out_of_road", 0.0)),
+                "route_completion": float(info.get("route_completion", 0.0)),
             }
             summaries.append(row)
             if run is not None:

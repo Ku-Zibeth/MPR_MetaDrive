@@ -9,16 +9,17 @@ import torch
 
 from .config import mapping, section
 from .evaluator import TrajectoryWorldModelEvaluator
+from .kinematic_filter import CorridorContext
 from .local_mppi import LocalMPPI
 from .residual_prior import ResidualTrajectoryPrior
 from .residual_training import ResidualTargetGenerator
 from .structured_proposal import StructuredProposalGenerator
 from .trajectory_adapter import LatticeActionAdapter
-from .types import MPRPlanContext, MPRPlanResult
+from .types import MPRPlanContext, MPRPlanResult, PlanningStage
 
 
 class MPRMPCPlanner:
-    """Global Lattice mode selection, one residual correction, local H+1 MPPI."""
+    """Global Lattice selection, optional 2-D residual, then bounded local MPPI."""
 
     def __init__(self, cfg, tdmpc_agent, controller, *, action_space=None):
         self.cfg = cfg
@@ -28,6 +29,14 @@ class MPRMPCPlanner:
         self.action_dim = int(cfg.action_dim)
         self.mpr_cfg = section(cfg, "mpr_mpc")
         self.enabled = bool(self.mpr_cfg.get("enabled", True))
+        self.allow_residual = bool(self.mpr_cfg.get("use_residual", True))
+        self.allow_mppi = bool(self.mpr_cfg.get("use_mppi", True))
+        stages = mapping(self.mpr_cfg.get("stages"))
+        self.mppi_start_step = int(stages.get("mppi_start_step", 20000))
+        self.residual_start_step = int(stages.get("residual_start_step", 50000))
+        if not 0 <= self.mppi_start_step <= self.residual_start_step:
+            raise ValueError("Require 0 <= mppi_start_step <= residual_start_step.")
+
         simulator = mapping(section(cfg, "metadrive").get("simulator"))
         self.control_dt = float(simulator.get("physics_world_step_size", 0.02)) * float(
             simulator.get("decision_repeat", 5)
@@ -38,23 +47,18 @@ class MPRMPCPlanner:
             self.action_adapter.validate_action_space(action_space)
         self.evaluator = TrajectoryWorldModelEvaluator(tdmpc_agent, self.horizon)
 
-        residual_cfg = mapping(self.mpr_cfg.get("residual_prior"))
-        self.residual_cfg = residual_cfg
-        self.delta_t_bound = float(residual_cfg.get("delta_t_bound", 0.25))
-        if self.delta_t_bound <= 0:
-            raise ValueError("residual_prior.delta_t_bound must be positive.")
+        self.residual_cfg = mapping(self.mpr_cfg.get("residual_prior"))
         self.parameter_scales = torch.as_tensor(
-            residual_cfg.get("parameter_scales", [4.0, 20.0, 3.0]),
+            self.residual_cfg.get("parameter_scales", [4.0, 20.0, 3.0]),
             dtype=torch.float32,
             device=self.device,
         )
         if self.parameter_scales.shape != (3,) or torch.any(self.parameter_scales <= 0):
             raise ValueError("residual_prior.parameter_scales must contain three positive values.")
-        wm_scales = residual_cfg.get("wm_feature_scales", {})
-        wm_scales = mapping(wm_scales)
+        wm_scales = mapping(self.residual_cfg.get("wm_feature_scales"))
         self.wm_feature_scales = torch.tensor(
             [
-                float(wm_scales.get("reward_sum", wm_scales.get("reward", 50.0))),
+                float(wm_scales.get("reward_sum", 50.0)),
                 float(wm_scales.get("terminal_q", 10.0)),
                 float(wm_scales.get("total_value", 50.0)),
             ],
@@ -62,29 +66,28 @@ class MPRMPCPlanner:
         )
         if torch.any(self.wm_feature_scales <= 0):
             raise ValueError("All residual_prior.wm_feature_scales must be positive.")
-        wm_feature_dim = 3
-        residual_input_dim = int(cfg.latent_dim) + 3 + wm_feature_dim
+        self.residual_input_dim = int(cfg.latent_dim) + 3 + 3
         self.residual_prior = ResidualTrajectoryPrior(
-            residual_input_dim,
-            hidden_dims=residual_cfg.get("hidden_dims", [256, 256]),
-            log_std_min=float(residual_cfg.get("log_std_min", -5.0)),
-            log_std_max=float(residual_cfg.get("log_std_max", 1.0)),
-            initial_log_std=float(residual_cfg.get("initial_log_std", -3.0)),
+            self.residual_input_dim,
+            hidden_dims=self.residual_cfg.get("hidden_dims", [256, 256]),
+            log_std_min=float(self.residual_cfg.get("log_std_min", -5.0)),
+            log_std_max=float(self.residual_cfg.get("log_std_max", 1.0)),
+            initial_log_std=float(self.residual_cfg.get("initial_log_std", -3.0)),
         ).to(self.device)
-        self.residual_input_dim = residual_input_dim
 
         refinement = mapping(self.mpr_cfg.get("refinement"))
         self.min_speed = float(refinement.get("min_speed", 0.5))
         self.max_speed = float(refinement.get("max_speed", 20.0))
         self.min_horizon = float(refinement.get("min_horizon", 1.5))
         self.max_horizon = float(refinement.get("max_horizon", 3.5))
-        self.use_mppi = bool(self.mpr_cfg.get("use_mppi", True))
+        mppi_cfg = mapping(self.mpr_cfg.get("mppi"))
         self.local_mppi = LocalMPPI(
             self.evaluator,
-            mapping(self.mpr_cfg.get("mppi")),
+            mppi_cfg,
             horizon=self.horizon,
             action_dim=self.action_dim,
             device=self.device,
+            control_dt=self.control_dt,
         )
         target_cfg = mapping(self.mpr_cfg.get("residual_training"))
         self.target_generator = ResidualTargetGenerator(
@@ -95,13 +98,28 @@ class MPRMPCPlanner:
             control_dt=self.control_dt,
             sample_count=int(target_cfg.get("target_samples", 32)),
             elite_count=int(target_cfg.get("target_elites", 4)),
-            target_mode=str(target_cfg.get("target_mode", "best")),
-            temperature=float(target_cfg.get("target_temperature", 1.0)),
+            target_mode=str(target_cfg.get("target_mode", "softmax_elite")),
+            temperature=float(target_cfg.get("target_temperature", 0.5)),
+            distribution=str(target_cfg.get("target_distribution", "truncated_gaussian")),
+            std_scale=float(target_cfg.get("target_std_scale", 0.25)),
+            min_improvement_abs=float(target_cfg.get("min_improvement_abs", 1.0)),
+            min_improvement_ratio=float(target_cfg.get("min_improvement_ratio", 0.02)),
             parameter_clamper=self.clamp_parameters,
         )
         self.last_context: MPRPlanContext | None = None
         self.last_result: MPRPlanResult | None = None
         self.residual_invalid_count = 0
+        self.residual_attempt_count = 0
+        self.mppi_call_count = 0
+        self.baseline_selected_count = 0
+
+    def stage_for_step(self, global_step: int) -> PlanningStage:
+        step = max(0, int(global_step))
+        if step < self.mppi_start_step:
+            return PlanningStage("A", False, False)
+        if step < self.residual_start_step:
+            return PlanningStage("B", False, self.allow_mppi)
+        return PlanningStage("C", self.allow_residual, self.allow_mppi)
 
     def reset(self) -> None:
         self.structured.reset()
@@ -118,16 +136,22 @@ class MPRMPCPlanner:
         return values
 
     def residual_bounds(self, coarse_path) -> torch.Tensor:
-        """Per-plan physical bounds [lane_width, coarse_speed/2, delta_T_max]."""
         lane_width = float(self.structured.planner.last_lane_width)
         if not np.isfinite(lane_width) or lane_width <= 0:
             raise RuntimeError("Lattice planner did not provide a positive current lane width.")
         target_speed = max(0.0, float(coarse_path.target_speed))
         return torch.tensor(
-            [[lane_width, 0.5 * target_speed, self.delta_t_bound]],
-            dtype=torch.float32,
-            device=self.device,
+            [[lane_width, 0.5 * target_speed]], dtype=torch.float32, device=self.device
         )
+
+    def apply_residual_parameters(self, coarse_parameters, residual) -> np.ndarray:
+        coarse = np.asarray(coarse_parameters, dtype=np.float32)
+        correction = np.asarray(residual, dtype=np.float32).reshape(2)
+        requested = coarse.copy()
+        requested[:2] += correction
+        refined = self.clamp_parameters(requested)
+        refined[2] = coarse[2]
+        return refined
 
     @torch.no_grad()
     def prepare(self, observation, vehicle) -> MPRPlanContext:
@@ -173,6 +197,24 @@ class MPRMPCPlanner:
         self.last_context = context
         return context
 
+    def _corridor_context(self, refined, vehicle) -> CorridorContext:
+        query = np.arange(self.horizon + 1, dtype=np.float64) * self.control_dt
+        source_t = np.asarray(refined.t, dtype=np.float64)
+        source_d = np.asarray(refined.d, dtype=np.float64)
+        refined_d = np.interp(np.minimum(query, source_t[-1]), source_t, source_d)
+        try:
+            speed = float(np.linalg.norm(np.asarray(vehicle.velocity, dtype=float)[:2]))
+        except Exception:
+            speed = max(0.0, float(getattr(vehicle, "speed", 0.0)))
+        road_min, road_max = self.structured.planner.last_lateral_bounds
+        return CorridorContext(
+            refined_lateral=torch.as_tensor(refined_d, dtype=torch.float32, device=self.device),
+            lane_width=float(self.structured.planner.last_lane_width),
+            road_min=float(road_min),
+            road_max=float(road_max),
+            initial_speed=speed,
+        )
+
     @torch.no_grad()
     def refine_and_plan(
         self,
@@ -180,34 +222,37 @@ class MPRMPCPlanner:
         vehicle,
         *,
         eval_mode: bool,
+        global_step: int,
         force_zero_residual: bool = False,
     ) -> MPRPlanResult:
         started = time.perf_counter()
+        stage = self.stage_for_step(global_step)
         coarse = context.selection.coarse_path
-        if force_zero_residual or not bool(self.mpr_cfg.get("use_residual", True)):
-            residual = torch.zeros((1, 3), device=self.device)
+        if force_zero_residual or not stage.use_residual:
+            residual = torch.zeros((1, 2), device=self.device)
             mean = residual.clone()
             log_std = residual.clone()
         else:
-            deterministic_residual = (
+            deterministic = (
                 bool(self.residual_cfg.get("deterministic_eval", True))
                 if eval_mode
-                else bool(self.residual_cfg.get("deterministic_train", False))
+                else bool(self.residual_cfg.get("deterministic_train", True))
             )
             residual, prior_info = self.residual_prior(
                 context.residual_input,
                 delta_bounds=context.residual_bounds,
-                deterministic=deterministic_residual,
+                deterministic=deterministic,
             )
             mean = prior_info["bounded_mean"]
             log_std = prior_info["log_std"]
+            self.residual_attempt_count += 1
 
         coarse_parameters = np.asarray(
             [coarse.target_d, coarse.target_speed, coarse.horizon], dtype=np.float32
         )
         requested = residual.squeeze(0).detach().cpu().numpy()
-        refined_parameters = self.clamp_parameters(coarse_parameters + requested)
-        effective_residual = refined_parameters - coarse_parameters
+        refined_parameters = self.apply_residual_parameters(coarse_parameters, requested)
+        effective_residual = refined_parameters[:2] - coarse_parameters[:2]
         refined = coarse
         residual_valid = True
         fallback_reason = ""
@@ -226,24 +271,39 @@ class MPRMPCPlanner:
             control_dt=self.control_dt,
             device=self.device,
         )
-        if self.use_mppi:
+
+        if stage.use_mppi:
             mppi = self.local_mppi.plan(
-                context.latent, refined_actions, eval_mode=eval_mode
+                context.latent,
+                refined_actions,
+                eval_mode=eval_mode,
+                corridor_context=self._corridor_context(refined, vehicle),
             )
+            self.mppi_call_count += 1
+            self.baseline_selected_count += int(mppi.baseline_selected)
             action = mppi.action
-            initial_mean = mppi.initial_mean
-            final_mean = mppi.final_mean
-            initial_std = mppi.initial_std
-            final_std = mppi.final_std
+            initial_mean, final_mean = mppi.initial_mean, mppi.final_mean
+            initial_std, final_std = mppi.initial_std, mppi.final_std
+            baseline_value = float(mppi.baseline_value.cpu())
             final_value = float(mppi.final_value.cpu())
+            planner_gain = float(mppi.planner_gain.cpu())
+            baseline_selected = float(mppi.baseline_selected)
+            reject_count = float(mppi.corridor_reject_count)
+            reject_rate = float(mppi.corridor_reject_rate)
+            max_lateral_deviation = float(mppi.max_lateral_deviation)
+            max_delta = mppi.max_action_delta
         else:
             action = refined_actions[0]
             initial_mean = final_mean = refined_actions
             initial_std = final_std = torch.zeros_like(refined_actions)
-            refined_consequence = self.evaluator.evaluate_trajectory_consequence(
+            refined_value = self.evaluator.evaluate_trajectory_consequence(
                 context.latent, refined_actions.unsqueeze(0)
-            )
-            final_value = float(refined_consequence.total_value[0].cpu())
+            ).total_value[0]
+            baseline_value = final_value = float(refined_value.cpu())
+            planner_gain = 0.0
+            baseline_selected = 1.0
+            reject_count = reject_rate = max_lateral_deviation = 0.0
+            max_delta = torch.zeros(self.action_dim, device=self.device)
 
         paths = list(context.selection.candidates)
         if not any(path is refined for path in paths):
@@ -252,6 +312,8 @@ class MPRMPCPlanner:
         self.structured.planner.last_selected_index = next(
             index for index, path in enumerate(paths) if path is refined
         )
+        invalid_rate = self.residual_invalid_count / max(1, self.residual_attempt_count)
+        baseline_rate = self.baseline_selected_count / max(1, self.mppi_call_count)
         elapsed_ms = 1000.0 * (time.perf_counter() - started)
         result = MPRPlanResult(
             action=action.detach().cpu(),
@@ -265,20 +327,34 @@ class MPRMPCPlanner:
             residual_valid=residual_valid,
             fallback_reason=fallback_reason,
             coarse_consequence=context.coarse_consequence,
+            stage=stage,
             metrics={
+                "mpr/stage": float(ord(stage.name) - ord("A")),
                 "mpr/candidate_count": float(len(context.selection.candidates)),
                 "mpr/feasible_count": float(len(context.selection.feasible)),
                 "mpr/selected_index": float(context.selection.selected_index),
                 "mpr/coarse_value": float(context.coarse_consequence.total_value[0].cpu()),
+                "mpr/baseline_value": baseline_value,
                 "mpr/final_value": final_value,
+                "mpr/planner_gain": planner_gain,
                 "mpr/residual_d": float(effective_residual[0]),
                 "mpr/residual_v": float(effective_residual[1]),
-                "mpr/residual_t": float(effective_residual[2]),
                 "mpr/residual_bound_d": float(context.residual_bounds[0, 0].cpu()),
                 "mpr/residual_bound_v": float(context.residual_bounds[0, 1].cpu()),
-                "mpr/residual_bound_t": float(context.residual_bounds[0, 2].cpu()),
                 "mpr/residual_valid": float(residual_valid),
                 "mpr/residual_invalid_count": float(self.residual_invalid_count),
+                "mpr/residual_invalid_rate": float(invalid_rate),
+                "mpr/initial_std_steer": float(initial_std[:, 0].mean().cpu()),
+                "mpr/initial_std_throttle": float(initial_std[:, 1].mean().cpu()),
+                "mpr/final_std_steer": float(final_std[:, 0].mean().cpu()),
+                "mpr/final_std_throttle": float(final_std[:, 1].mean().cpu()),
+                "mpr/max_delta_steer": float(max_delta[0].cpu()),
+                "mpr/max_delta_throttle": float(max_delta[1].cpu()),
+                "mpr/max_lateral_deviation": max_lateral_deviation,
+                "mpr/corridor_reject_count": reject_count,
+                "mpr/corridor_reject_rate": reject_rate,
+                "mpr/baseline_selected": baseline_selected,
+                "mpr/baseline_selected_rate": float(baseline_rate),
                 "mpr/planning_ms": elapsed_ms,
             },
             debug={
@@ -291,7 +367,16 @@ class MPRMPCPlanner:
         self.last_result = result
         return result
 
-    def plan(self, observation, vehicle, *, t0=False, eval_mode=False, force_zero_residual=False):
+    def plan(
+        self,
+        observation,
+        vehicle,
+        *,
+        global_step: int,
+        t0=False,
+        eval_mode=False,
+        force_zero_residual=False,
+    ):
         if t0:
             self.reset()
         context = self.prepare(observation, vehicle)
@@ -299,6 +384,7 @@ class MPRMPCPlanner:
             context,
             vehicle,
             eval_mode=eval_mode,
+            global_step=global_step,
             force_zero_residual=force_zero_residual,
         )
 

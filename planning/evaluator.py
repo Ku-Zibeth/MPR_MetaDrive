@@ -91,11 +91,18 @@ class TrajectoryWorldModelEvaluator:
             terminal_action = actions[:, self.horizon]
         else:
             terminal_action, _ = model.pi(z, task)
-        terminal_q = model.Q(z, terminal_action, task, return_type="avg")
+        # Use the full ensemble instead of TD-MPC2's random two-Q subsample. This
+        # makes evaluation deterministic and exposes epistemic spread to MPPI.
+        terminal_q_all = td_math.two_hot_inv(
+            model.Q(z, terminal_action, task, return_type="all"), self.agent.cfg
+        )
+        terminal_q = terminal_q_all.mean(dim=0)
+        terminal_q_std = terminal_q_all.std(dim=0, unbiased=False)
         total += discount * (1.0 - terminated) * terminal_q
         return TrajectoryConsequence(
             reward_sequence=torch.stack(rewards, dim=1).detach(),
             terminal_q=terminal_q.squeeze(-1).detach(),
+            terminal_q_std=terminal_q_std.squeeze(-1).detach(),
             total_value=total.squeeze(-1).detach(),
             terminal_latent=z.detach(),
         )

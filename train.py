@@ -49,9 +49,17 @@ def main(raw_cfg: DictConfig) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("MPR-MPC uses the CUDA-only TD-MPC2 implementation.")
     raw_cfg.compile = False
+    if raw_cfg.get("checkpoint") is not None:
+        raise ValueError(
+            "mpr_mpc checkpoint must remain null for a fresh run. Use "
+            "resume_checkpoint only for an mpr_mpc_v1 training checkpoint."
+        )
     cfg = parse_cfg(raw_cfg)
     set_seed(int(cfg.seed))
     env = make_env(cfg)
+    # The shared environment normally expands seed_steps for random exploration.
+    # MPR-MPC owns its cold start and is Lattice-controlled from step zero.
+    cfg.seed_steps = 0
     try:
         tdmpc_agent = MPRTDMPC2(cfg)
         lattice_config = dict(FRENET_DEFAULT_CONFIG)
@@ -61,9 +69,9 @@ def main(raw_cfg: DictConfig) -> None:
             cfg, tdmpc_agent, controller, action_space=env.action_space
         )
         agent = MPRMPCAgent(cfg, tdmpc_agent, planner, env)
-        if cfg.checkpoint:
-            agent.load(cfg.checkpoint, load_optimizer=False)
-            print(f"Loaded checkpoint: {cfg.checkpoint}")
+        if cfg.resume_checkpoint:
+            agent.load(cfg.resume_checkpoint, load_optimizer=True)
+            print(f"Resumed MPR-MPC checkpoint: {cfg.resume_checkpoint}")
         trainer = MPROnlineTrainer(
             cfg=cfg,
             env=env,
