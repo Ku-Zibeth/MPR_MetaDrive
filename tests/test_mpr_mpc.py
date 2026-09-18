@@ -54,6 +54,16 @@ class RecordingEvaluator:
         return SimpleNamespace(total_value=values, terminal_q_std=torch.zeros_like(values))
 
 
+class FixedValueEvaluator:
+    def __init__(self, values):
+        self.values = torch.as_tensor(values, dtype=torch.float32)
+
+    def evaluate_mppi_candidates(self, _z, actions, task=None):
+        del task
+        values = self.values.to(actions.device)
+        return SimpleNamespace(total_value=values, terminal_q_std=torch.zeros_like(values))
+
+
 def mppi_cfg(**updates):
     cfg = {
         "num_samples": 24,
@@ -188,7 +198,9 @@ class MPRMPCUnitTests(unittest.TestCase):
         )
         baseline = torch.zeros((11, 2))
         candidates = torch.stack([baseline, torch.tensor([[1.0, 1.0]]).expand(11, -1)])
-        context = CorridorContext(torch.zeros(11), 1.0, -5.0, 5.0, 15.0)
+        context = CorridorContext(
+            torch.zeros(10), 1.0, -5.0, 5.0, 15.0, 1.8, 2.5, 0.7
+        )
         result = corridor.check(candidates, baseline, context)
         self.assertTrue(bool(result.valid[0]))
         self.assertFalse(bool(result.valid[1]))
@@ -217,6 +229,97 @@ class MPRMPCUnitTests(unittest.TestCase):
         self.assertEqual((stage_a.use_residual, stage_a.use_mppi), (False, False))
         self.assertEqual((stage_b.use_residual, stage_b.use_mppi), (False, True))
         self.assertEqual((stage_c.use_residual, stage_c.use_mppi), (True, True))
+
+    def test_a_vehicle_width_is_applied_to_raw_road_bounds(self):
+        corridor = BatchedKinematicCorridor(
+            {"lateral_corridor_ratio": 10.0, "lateral_safety_margin": 0.2},
+            control_dt=0.1,
+            device="cpu",
+        )
+        actions = torch.zeros((2, 3, 2))
+        baseline = torch.zeros((3, 2))
+        positive = CorridorContext(
+            torch.full((2,), 2.31), 3.5, -3.5, 3.5, 0.0, 2.0, 2.5, 0.7
+        )
+        negative = CorridorContext(
+            torch.full((2,), -2.31), 3.5, -3.5, 3.5, 0.0, 2.0, 2.5, 0.7
+        )
+        self.assertFalse(bool(corridor.check(actions, baseline, positive).valid[0]))
+        self.assertFalse(bool(corridor.check(actions, baseline, negative).valid[0]))
+
+    def test_b_vehicle_geometry_prefers_live_metadrive_parameters(self):
+        planner = SimpleNamespace(mppi_cfg={})
+        vehicle = SimpleNamespace(
+            FRONT_WHEELBASE=1.0,
+            REAR_WHEELBASE=1.5,
+            max_steering=40.0,
+            WIDTH=1.8,
+        )
+        width, wheelbase, steering = MPRMPCPlanner._vehicle_geometry(planner, vehicle)
+        self.assertAlmostEqual(width, 1.8)
+        self.assertAlmostEqual(wheelbase, 2.5)
+        self.assertAlmostEqual(steering, 0.6981317, places=6)
+
+    def test_c_mppi_separates_raw_wm_value_and_planner_score(self):
+        planner = LocalMPPI(
+            FixedValueEvaluator([10.0, 12.0, 11.0]),
+            mppi_cfg(
+                num_samples=3,
+                num_elites=3,
+                iterations=1,
+                deviation_coef=5.0,
+            ),
+            horizon=1,
+            action_dim=2,
+            device="cpu",
+        )
+        baseline = torch.zeros((2, 2))
+        fixed = torch.stack(
+            [baseline, torch.tensor([[0.05, 0.0], [0.05, 0.0]]),
+             torch.tensor([[0.01, 0.0], [0.01, 0.0]])]
+        )
+        planner._candidate_batch = lambda mean, std, base, generator=None: fixed.clone()
+        result = planner.plan(torch.zeros((1, 2)), baseline, eval_mode=True)
+        self.assertAlmostEqual(float(result.selected_wm_value), 11.0, places=5)
+        self.assertAlmostEqual(float(result.selected_score), 10.8, places=5)
+        self.assertAlmostEqual(float(result.wm_value_gain), 1.0, places=5)
+        self.assertAlmostEqual(float(result.planner_score_gain), 0.8, places=5)
+
+    def test_d_improvement_gate_compares_score_with_score(self):
+        def run(selected_score):
+            planner = LocalMPPI(
+                FixedValueEvaluator([10.0, selected_score]),
+                mppi_cfg(
+                    num_samples=2,
+                    num_elites=2,
+                    iterations=1,
+                    min_improvement_abs=1.0,
+                ),
+                horizon=1,
+                action_dim=2,
+                device="cpu",
+            )
+            baseline = torch.zeros((2, 2))
+            fixed = torch.stack([baseline, torch.full((2, 2), 0.01)])
+            planner._candidate_batch = lambda mean, std, base, generator=None: fixed.clone()
+            return planner.plan(torch.zeros((1, 2)), baseline, eval_mode=True)
+
+        self.assertTrue(run(10.5).baseline_selected)
+        accepted = run(12.0)
+        self.assertFalse(accepted.baseline_selected)
+        self.assertAlmostEqual(float(accepted.planner_score_gain), 2.0, places=5)
+
+    def test_e_terminal_q_action_is_not_integrated_by_corridor(self):
+        corridor = BatchedKinematicCorridor({}, control_dt=0.1, device="cpu")
+        baseline = torch.zeros((4, 2))  # H=3 explicit transitions + one terminal-Q action
+        candidates = torch.stack([baseline, baseline.clone()])
+        candidates[1, -1] = torch.tensor([1.0, 1.0])
+        context = CorridorContext(
+            torch.zeros(3), 3.5, -10.0, 10.0, 10.0, 1.8, 2.5, 0.7
+        )
+        result = corridor.check(candidates, baseline, context)
+        torch.testing.assert_close(result.lateral[0], result.lateral[1])
+        self.assertEqual(result.lateral.shape, (2, 3))
 
 
 if __name__ == "__main__":

@@ -54,14 +54,14 @@ class TrajectoryConsequence:
 @dataclass
 class MPRPlanContext:
     observation: torch.Tensor
-    latent: torch.Tensor
+    latent: torch.Tensor | None
     selection: StructuredSelection
     coarse_actions: torch.Tensor
-    coarse_consequence: TrajectoryConsequence
-    wm_features: torch.Tensor
+    coarse_consequence: TrajectoryConsequence | None
+    wm_features: torch.Tensor | None
     coarse_parameters: torch.Tensor
     residual_bounds: torch.Tensor
-    residual_input: torch.Tensor
+    residual_input: torch.Tensor | None
 
 
 @dataclass
@@ -76,7 +76,7 @@ class MPRPlanResult:
     residual_log_std: torch.Tensor
     residual_valid: bool
     fallback_reason: str
-    coarse_consequence: TrajectoryConsequence
+    coarse_consequence: TrajectoryConsequence | None
     stage: PlanningStage
     metrics: dict[str, float] = field(default_factory=dict)
     debug: dict[str, Any] = field(default_factory=dict)

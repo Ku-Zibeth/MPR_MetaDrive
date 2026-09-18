@@ -73,8 +73,10 @@ class MPRMPCAgent:
                     f"selected={int(result.metrics['mpr/selected_index'])} "
                     f"coarse={coarse.tolist()} residual={residual.tolist()} "
                     f"refined={refined.tolist()} "
-                    f"J={result.metrics['mpr/coarse_value']:.3f}->"
-                    f"{result.metrics['mpr/final_value']:.3f} "
+                    f"WM={result.metrics['mpr/baseline_wm_value']:.3f}->"
+                    f"{result.metrics['mpr/selected_wm_value']:.3f} "
+                    f"score={result.metrics['mpr/baseline_score']:.3f}->"
+                    f"{result.metrics['mpr/selected_score']:.3f} "
                     f"time_ms={result.metrics['mpr/planning_ms']:.2f}"
                 )
             should_generate = (

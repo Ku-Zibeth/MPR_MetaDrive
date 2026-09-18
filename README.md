@@ -25,6 +25,8 @@ TD-MPC2 is initialized from scratch. `checkpoint` must stay `null`; only an
 Collection is Lattice-driven from step zero. There is no random action seed and
 no concentrated seed-data pretraining. Once replay contains enough transitions
 for a complete batch, TD-MPC2 receives one online update per environment step.
+Stage A also skips the planning-time encoder/WM rollout; replay training of the
+world model continues normally.
 
 ## Tensor flow
 
@@ -48,6 +50,9 @@ to the original refined baseline, a batched bicycle-model corridor check, and
 deviation/smoothness penalties. Candidate zero is always the baseline and
 candidate one is the current mean. Evaluation samples reproducibly and selects
 the highest-scoring real elite. No noise is added after selection.
+The corridor integrates only the first H controls into states `t+1...t+H`; the
+H+1-th control is reserved for terminal Q. Vehicle width, wheelbase and maximum
+steering are read from the live MetaDrive vehicle, with config values as fallback.
 
 ## Fresh training
 
@@ -78,6 +83,17 @@ uses the lexicographic key `(success higher, offroad lower, reward higher)`;
 `final.pt` is written on normal completion. Checkpoints include the TD-MPC2
 model and both optimizers, running value scale, residual model/optimizer,
 global environment step and planner counters.
+
+Replay contents and an unfinished episode are intentionally not serialized.
+After resume, model/optimizer/planner state is restored, while TD replay and the
+Residual supervision buffer rebuild from new Stage-C planner data. Updates stay
+disabled until `train/replay_ready=1`; progress is visible in
+`train/replay_steps`.
+
+MPPI logging separates raw WM return (`baseline_wm_value`, `selected_wm_value`,
+`wm_value_gain`) from penalized planner score (`baseline_score`,
+`selected_score`, `planner_score_gain`). Legacy `baseline_value`, `final_value`
+and `planner_gain` are retained as planner-score aliases.
 
 ## Evaluation and visualization
 

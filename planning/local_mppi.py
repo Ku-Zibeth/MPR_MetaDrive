@@ -28,6 +28,13 @@ class LocalMPPIResult:
     final_mean: torch.Tensor
     initial_std: torch.Tensor
     final_std: torch.Tensor
+    baseline_wm_value: torch.Tensor
+    selected_wm_value: torch.Tensor
+    wm_value_gain: torch.Tensor
+    baseline_score: torch.Tensor
+    selected_score: torch.Tensor
+    planner_score_gain: torch.Tensor
+    # Compatibility aliases; these are all planner-score quantities.
     baseline_value: torch.Tensor
     final_value: torch.Tensor
     planner_gain: torch.Tensor
@@ -157,8 +164,8 @@ class LocalMPPI:
 
         total_rejected = 0
         total_checked = 0
-        actions = elite_actions = elite_values = weights = None
-        baseline_value = None
+        actions = elite_actions = elite_values = elite_wm_values = weights = None
+        baseline_wm_value = baseline_score = None
         for _ in range(self.iterations):
             actions = self._candidate_batch(mean, std, baseline, generator)
             if corridor_context is None:
@@ -171,16 +178,21 @@ class LocalMPPI:
             total_rejected += int((~valid).sum().item())
             total_checked += self.num_samples
             consequence = self.evaluator.evaluate_mppi_candidates(z_t, actions, task=task)
-            wm_values = (
-                consequence.total_value
-                - self.uncertainty_coef * consequence.terminal_q_std
-            ).nan_to_num(0.0)
+            wm_values = consequence.total_value.nan_to_num(0.0)
+            uncertainty_penalty = self.uncertainty_coef * consequence.terminal_q_std
             deviation, smoothness = self._penalties(actions, baseline)
-            scores = wm_values - self.deviation_coef * deviation - self.smoothness_coef * smoothness
+            scores = (
+                wm_values
+                - uncertainty_penalty
+                - self.deviation_coef * deviation
+                - self.smoothness_coef * smoothness
+            )
             scores = scores.masked_fill(~valid, -torch.inf)
-            baseline_value = wm_values[0]
+            baseline_wm_value = wm_values[0]
+            baseline_score = scores[0]
             elite_indices = torch.topk(scores, self.num_elites, dim=0).indices
             elite_values = scores[elite_indices]
+            elite_wm_values = wm_values[elite_indices]
             elite_actions = actions[elite_indices]
             finite = torch.isfinite(elite_values)
             logits = self.temperature * (elite_values - elite_values[finite].max())
@@ -200,17 +212,21 @@ class LocalMPPI:
         else:
             selected_index = int(torch.multinomial(weights, 1).item())
         sequence = elite_actions[selected_index]
-        selected_value = elite_values[selected_index]
-        planner_gain = selected_value - baseline_value
+        selected_wm_value = elite_wm_values[selected_index]
+        selected_score = elite_values[selected_index]
+        wm_value_gain = selected_wm_value - baseline_wm_value
+        planner_score_gain = selected_score - baseline_score
         threshold = max(
             self.min_improvement_abs,
-            self.min_improvement_ratio * abs(float(baseline_value.cpu())),
+            self.min_improvement_ratio * abs(float(baseline_score.cpu())),
         )
-        baseline_selected = bool(float(planner_gain.cpu()) <= threshold)
+        baseline_selected = bool(float(planner_score_gain.cpu()) <= threshold)
         if baseline_selected:
             sequence = baseline
-            selected_value = baseline_value
-            planner_gain = selected_value - baseline_value
+            selected_wm_value = baseline_wm_value
+            selected_score = baseline_score
+            wm_value_gain = selected_wm_value - baseline_wm_value
+            planner_score_gain = selected_score - baseline_score
 
         self._prev_mean = mean.detach().clone()
         action_delta = (sequence - baseline).abs().amax(dim=0)
@@ -228,9 +244,15 @@ class LocalMPPI:
             final_mean=mean,
             initial_std=initial_std,
             final_std=std,
-            baseline_value=baseline_value,
-            final_value=selected_value,
-            planner_gain=planner_gain,
+            baseline_wm_value=baseline_wm_value,
+            selected_wm_value=selected_wm_value,
+            wm_value_gain=wm_value_gain,
+            baseline_score=baseline_score,
+            selected_score=selected_score,
+            planner_score_gain=planner_score_gain,
+            baseline_value=baseline_score,
+            final_value=selected_score,
+            planner_gain=planner_score_gain,
             elite_values=elite_values,
             baseline_selected=baseline_selected,
             corridor_reject_count=total_rejected,

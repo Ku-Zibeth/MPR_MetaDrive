@@ -20,6 +20,13 @@ class MPROnlineTrainer(OnlineTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._step = int(self.agent.global_env_step)
+        self._resuming_without_replay = self._step > 0
+        if self._resuming_without_replay and not bool(
+            self.cfg.get("resume_replay_warmup", True)
+        ):
+            raise ValueError(
+                "Replay buffers are not serialized; resume_replay_warmup must remain true."
+            )
         self._replay_steps = 0
         self._best_eval_key = self.agent.best_eval_key
         self._checkpoint_freq = int(self.cfg.get("checkpoint_freq", 50000))
@@ -120,6 +127,10 @@ class MPROnlineTrainer(OnlineTrainer):
                 if self._step > 0:
                     if info["terminated"] and not self.cfg.episodic:
                         raise ValueError("Termination detected but episodic=false.")
+                    episode = torch.cat(self._tds)
+                    self._ep_idx = self.buffer.add(episode)
+                    self._replay_steps += max(0, len(episode) - 1)
+                    replay_ready = self._replay_steps >= minimum_replay_steps
                     train_metrics.update(
                         episode_reward=torch.tensor([td["reward"] for td in self._tds[1:]]).sum(),
                         episode_cost=torch.tensor([td["cost"] for td in self._tds[1:]]).sum(),
@@ -127,12 +138,11 @@ class MPROnlineTrainer(OnlineTrainer):
                         episode_length=len(self._tds),
                         episode_terminated=info["terminated"],
                         Reason=info.get("end_reason", "unknown"),
+                        replay_steps=float(self._replay_steps),
+                        replay_ready=float(replay_ready),
                     )
                     train_metrics.update(self.common_metrics())
                     self.logger.log(train_metrics, "train")
-                    episode = torch.cat(self._tds)
-                    self._ep_idx = self.buffer.add(episode)
-                    self._replay_steps += max(0, len(episode) - 1)
                 observation = self.env.reset()
                 self._tds = [self.to_td(observation)]
 
@@ -151,7 +161,10 @@ class MPROnlineTrainer(OnlineTrainer):
             self._tds.append(self.to_td(observation, action, reward, info["terminated"], cost))
 
             # Once a complete batch can be formed, exactly one online update per env step.
-            if self._replay_steps >= minimum_replay_steps:
+            replay_ready = self._replay_steps >= minimum_replay_steps
+            train_metrics["replay_steps"] = float(self._replay_steps)
+            train_metrics["replay_ready"] = float(replay_ready)
+            if replay_ready:
                 train_metrics.update(self.agent.update(self.buffer))
 
             self._step += 1

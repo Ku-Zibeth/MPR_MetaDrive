@@ -78,9 +78,13 @@ def _render(env, result, episode: int, scenario: int, step: int) -> None:
                 "residual d/v": "/".join(
                     f"{float(value):+.2f}" for value in result.residual.cpu()
                 ),
-                "coarse/final J": (
-                    f"{result.metrics['mpr/coarse_value']:.2f}/"
-                    f"{result.metrics['mpr/final_value']:.2f}"
+                "WM baseline/selected": (
+                    f"{result.metrics['mpr/baseline_wm_value']:.2f}/"
+                    f"{result.metrics['mpr/selected_wm_value']:.2f}"
+                ),
+                "score baseline/selected": (
+                    f"{result.metrics['mpr/baseline_score']:.2f}/"
+                    f"{result.metrics['mpr/selected_score']:.2f}"
                 ),
             }
         )

@@ -8,6 +8,7 @@ algorithm_version: lattice_tdmpc2_v3
 checkpoint: null
 resume_checkpoint: null
 checkpoint_freq: 50000
+resume_replay_warmup: true
 eval_episodes: 20
 eval_freq: 50000
 
@@ -91,8 +92,10 @@ mpr_mpc:
     temperature: 0.5
     lateral_corridor_ratio: 0.5
     lateral_safety_margin: 0.15
-    kinematic_wheelbase: 2.8
-    kinematic_max_steering_angle: 0.6
+    # Fallbacks only; live MetaDrive vehicle attributes take priority.
+    kinematic_vehicle_width: 1.852
+    kinematic_wheelbase: 2.46894
+    kinematic_max_steering_angle: 0.6981317
     kinematic_max_acceleration: 4.0
     kinematic_max_deceleration: 6.0
     deviation_coef: 5.0
