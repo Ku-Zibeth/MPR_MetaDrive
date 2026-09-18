@@ -1,0 +1,270 @@
+defaults:
+  - _self_
+
+task: metadrive-risk
+obs: state
+episodic: true
+algorithm_version: lattice_tdmpc2_v3
+checkpoint: null
+eval_episodes: 20
+eval_freq: 50000
+
+steps: 1000000
+batch_size: 256
+reward_coef: 0.1
+value_coef: 0.1
+termination_coef: 1.0
+consistency_coef: 20.0
+rho: 0.5
+lr: 0.0003
+enc_lr_scale: 0.3
+grad_clip_norm: 20.0
+tau: 0.01
+discount_denom: 5
+discount_min: 0.95
+discount_max: 0.995
+buffer_size: 1000000
+seed_steps: 5000
+exp_name: mpr_mpc
+data_dir: null
+
+mpc: true
+iterations: 6
+num_samples: 512
+num_elites: 64
+num_pi_trajs: 24
+horizon: 10
+min_std: 0.05
+max_std: 2.0
+temperature: 0.5
+
+planner:
+  type: mpr_mpc
+  final_cost_lambda: 0.0
+  num_candidates: 64
+
+lattice:
+  frenet_target_speed: 13.89
+  frenet_dt: 0.1
+  frenet_time_horizon: 3.0
+  frenet_time_horizons: [2.0, 3.0]
+  frenet_speed_offsets: [0.0, -4.0, -8.0]
+  frenet_lateral_sample_count: 5
+  frenet_obstacle_check: true
+  frenet_filter_off_lane_paths: true
+  frenet_show_in_window: true
+
+mpr_mpc:
+  enabled: true
+  use_residual: true
+  use_mppi: true
+  residual_prior:
+    hidden_dims: [256, 256]
+    delta_t_bound: 0.25
+    parameter_scales: [4.0, 20.0, 3.0]
+    wm_feature_scales:
+      reward_sum: 50.0
+      terminal_q: 10.0
+      total_value: 50.0
+    log_std_min: -5.0
+    log_std_max: 1.0
+    initial_log_std: -3.0
+    deterministic_eval: true
+    deterministic_train: false
+  refinement:
+    min_speed: 0.5
+    max_speed: 20.0
+    min_horizon: 1.5
+    max_horizon: 3.5
+  mppi:
+    num_samples: 512
+    num_elites: 64
+    iterations: 6
+    initial_std: 0.35
+    min_std: 0.05
+    max_std: 0.75
+    temperature: 0.5
+    proposal_init: structured_baseline
+    blend_alpha: 0.8
+  residual_training:
+    enabled: true
+    learning_starts: 0
+    target_every: 1
+    target_samples: 32
+    target_elites: 4
+    target_mode: best
+    target_temperature: 1.0
+    buffer_size: 100000
+    batch_size: 64
+    updates_per_step: 1
+    lr: 0.0003
+    residual_reg_coef: 0.01
+    grad_clip_norm: 10.0
+  debug:
+    enabled: false
+    every: 100
+
+flow:
+  enabled: false
+self_improve:
+  enabled: false
+cost:
+  enabled: true
+  gamma: 0.99
+  loss_coef: 1.0
+  q_enabled: false
+  num_q: 2
+  q_loss_coef: 1.0
+
+log_std_min: -10.0
+log_std_max: 2.0
+entropy_coef: 0.0001
+num_bins: 101
+vmin: -10.0
+vmax: 10.0
+model_size: 5
+num_enc_layers: 2
+enc_dim: 256
+num_channels: 32
+mlp_dim: 512
+latent_dim: 512
+task_dim: 0
+num_q: 5
+dropout: 0.01
+simnorm_dim: 8
+
+wandb_project: mpr_mpc_metadrive
+# null uses the default account configured by `wandb login`.
+wandb_entity: null
+wandb_run_name: null
+wandb_silent: false
+enable_wandb: true
+save_csv: true
+save_video: false
+save_agent: true
+compile: false
+seed: 1
+
+work_dir: null
+task_title: null
+multitask: null
+tasks: null
+obs_shape: null
+action_dim: null
+episode_length: null
+obs_shapes: null
+action_dims: null
+episode_lengths: null
+bin_size: null
+
+metadrive:
+  simulator:
+    use_render: false
+    image_observation: false
+    manual_control: false
+    discrete_action: false
+    action_check: false
+    start_seed: 100
+    num_scenarios: 50
+    map: 3
+    traffic_density: 0.1
+    random_traffic: false
+    accident_prob: 0.8
+    remove_crashed_traffic_vehicle: false
+    horizon: 1000
+    truncate_as_terminate: false
+    physics_world_step_size: 0.02
+    decision_repeat: 5
+    out_of_road_done: true
+    crash_vehicle_done: false
+    crash_object_done: false
+    cost_to_reward: false
+    success_reward: 10.0
+    out_of_road_penalty: 8.0
+    crash_vehicle_penalty: 1.0
+    crash_object_penalty: 1.0
+    crash_vehicle_cost: 1.0
+    crash_object_cost: 1.0
+    out_of_road_cost: 1.0
+    driving_reward: 1.0
+    speed_reward: 0.12
+    use_risk_field_reward: true
+    risk_field_reward_scale: 25.0
+    enable_idm_lane_change: true
+    disable_idm_deceleration: false
+    out_of_road_mode: legacy
+    out_of_road_warning_limit: 5
+    out_of_road_warning_penalty: 1.0
+    out_of_road_warning_cost: 1.0
+    out_of_road_recovery_steps: 15
+    out_of_road_terminate_after_budget: true
+    log_level: 50
+    vehicle_config:
+      lidar:
+        num_lasers: 240
+        distance: 50
+        num_others: 0
+        gaussian_noise: 0.0
+        dropout_prob: 0.0
+        add_others_navi: false
+  reward:
+    base_reward_weight: 1.0
+    risk_field_reward_scale: 25.0
+    reward_min: -10.0
+    reward_max: 10.0
+  # Explicitly aligned with the existing tdmpc2_fm MetaDrive risk-field task.
+  risk_field:
+    risk_field_max_distance: 50.0
+    risk_field_boundary_weight: 2.0
+    risk_field_lane_weight: 0.1
+    risk_field_offroad_weight: 2.0
+    risk_field_vehicle_weight: 2.0
+    risk_field_object_weight: 1.0
+    risk_field_headway_weight: 0.0
+    risk_field_ttc_weight: 0.0
+    risk_field_boundary_sigma: 0.75
+    risk_field_lane_edge_sigma: 0.75
+    risk_field_broken_line_sigma: 0.1
+    risk_field_lane_core_sigma_scale: 2.2
+    risk_field_lane_shoulder_sigma_scale: 1.5
+    risk_field_lane_shoulder_weight: 0.9
+    risk_field_broken_line_factor: 0.1
+    risk_field_solid_line_factor: 1.0
+    risk_field_boundary_line_factor: 1.0
+    risk_field_oncoming_line_factor: 1.5
+    risk_field_offroad_cost: 1.0
+    risk_field_offroad_sigma: 1.0
+    risk_field_on_lane_margin: 0.05
+    risk_field_vehicle_longitudinal_sigma: 6.8
+    risk_field_vehicle_lateral_sigma: 2.0
+    risk_field_vehicle_beta: 2.0
+    risk_field_vehicle_dynamic_sigma_scale: 1.2
+    risk_field_vehicle_dynamic_alpha: 0.35
+    risk_field_vehicle_min_dynamic_sigma: 0.5
+    risk_field_object_longitudinal_sigma: 5.5
+    risk_field_object_lateral_sigma: 2.0
+    risk_field_object_beta: 2.0
+    risk_field_lane_beta: 2.0
+    risk_field_headway_time_threshold: 1.2
+    risk_field_ttc_threshold: 3.0
+    risk_field_min_speed: 0.5
+    risk_field_headway_cost_clip: 1.0
+    risk_field_ttc_cost_clip: 1.0
+    risk_field_raw_clip: 10.0
+  cost:
+    enabled: true
+    risk_field_weight: 1.0
+    event_weights:
+      cost: 1.0
+      crash: 1.0
+      crash_vehicle: 1.0
+      crash_object: 1.0
+      out_of_road: 1.0
+      out_of_road_warning: 1.0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

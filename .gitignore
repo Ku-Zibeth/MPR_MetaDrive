@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Cache / generated data
+*.npy
+*.npz
+
+# OS
+.DS_Store

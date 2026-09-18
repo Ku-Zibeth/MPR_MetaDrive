@@ -1,0 +1,87 @@
+"""Shared immutable planning records."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+import torch
+
+
+@dataclass(frozen=True)
+class StructuredSelection:
+    candidates: tuple[Any, ...]
+    feasible: tuple[Any, ...]
+    coarse_path: Any
+    selected_index: int
+    used_fallback: bool = False
+
+
+@dataclass(frozen=True)
+class TrajectoryConsequence:
+    reward_sequence: torch.Tensor
+    terminal_q: torch.Tensor
+    total_value: torch.Tensor
+    terminal_latent: torch.Tensor
+
+    @property
+    def reward_sum(self) -> torch.Tensor:
+        """Undiscounted sum of the H one-step reward predictions."""
+        return self.reward_sequence.sum(dim=-1)
+
+    @property
+    def features(self) -> torch.Tensor:
+        """Compact residual-policy features: [sum(r_0...r_H-1), Q_H, J]."""
+        return torch.cat(
+            [
+                self.reward_sum.unsqueeze(-1),
+                self.terminal_q.unsqueeze(-1),
+                self.total_value.unsqueeze(-1),
+            ],
+            dim=-1,
+        )
+
+
+@dataclass
+class MPRPlanContext:
+    observation: torch.Tensor
+    latent: torch.Tensor
+    selection: StructuredSelection
+    coarse_actions: torch.Tensor
+    coarse_consequence: TrajectoryConsequence
+    wm_features: torch.Tensor
+    coarse_parameters: torch.Tensor
+    residual_bounds: torch.Tensor
+    residual_input: torch.Tensor
+
+
+@dataclass
+class MPRPlanResult:
+    action: torch.Tensor
+    coarse_path: Any
+    refined_path: Any
+    coarse_actions: torch.Tensor
+    refined_actions: torch.Tensor
+    residual: torch.Tensor
+    residual_mean: torch.Tensor
+    residual_log_std: torch.Tensor
+    residual_valid: bool
+    fallback_reason: str
+    coarse_consequence: TrajectoryConsequence
+    metrics: dict[str, float] = field(default_factory=dict)
+    debug: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def coarse_parameters(self) -> np.ndarray:
+        return np.asarray(
+            [self.coarse_path.target_d, self.coarse_path.target_speed, self.coarse_path.horizon],
+            dtype=np.float32,
+        )
+
+    @property
+    def refined_parameters(self) -> np.ndarray:
+        return np.asarray(
+            [self.refined_path.target_d, self.refined_path.target_speed, self.refined_path.horizon],
+            dtype=np.float32,
+        )
