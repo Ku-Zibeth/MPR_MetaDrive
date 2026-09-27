@@ -11,7 +11,7 @@ planner:
   type: lattice_tdmpc_sac
 residual_rl:
   enabled: true
-  tdmpc2_checkpoint: /home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt
+  tdmpc2_checkpoint: <MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt
   sac_checkpoint: null
   training_mode: sac_residual_frozen_wm
   freeze_tdmpc2: true

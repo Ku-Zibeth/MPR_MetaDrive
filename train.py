@@ -18,7 +18,7 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from mpr_mpc._bootstrap import bootstrap
+from mpr_mpc._bootstrap import LOG_ROOT, bootstrap
 
 bootstrap()
 
@@ -46,12 +46,16 @@ def main(raw_cfg: DictConfig) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("MPR-MPC uses the CUDA-only TD-MPC2 implementation.")
     raw_cfg.compile = False
+    if raw_cfg.get("log_root") is None:
+        raw_cfg.log_root = str(LOG_ROOT)
     if raw_cfg.get("checkpoint") is not None:
         raise ValueError(
             "mpr_mpc checkpoint must remain null for a fresh run. Use "
             "resume_checkpoint only for an mpr_mpc_v2_residual_sac training checkpoint."
         )
     cfg = parse_cfg(raw_cfg)
+    print(f"MPR-MPC run directory:\n  {cfg.work_dir}")
+    print(f"Model directory:\n  {Path(cfg.work_dir) / 'models'}")
     set_seed(int(cfg.seed))
     env = make_env(cfg)
     # The shared environment normally expands seed_steps for random exploration.

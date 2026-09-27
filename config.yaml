@@ -190,6 +190,7 @@ compile: false
 seed: 1
 
 work_dir: null
+log_root: null
 task_title: null
 multitask: null
 tasks: null

@@ -58,11 +58,16 @@ local project-specific lattice implementation from the tested TD-MPC2 workspace
 Vendored location:
 
 ```text
-vendor/lattice_runtime/lattice/
+lattice/
 ```
 
 This code provides the Frenet/Lattice planner imported as `lattice.*` by
 MPR-MPC and by `lattice_tdmpc2`.
+
+Exact upstream commit metadata for this project-specific Lattice snapshot is not
+available in the inspected workspace. This vendored snapshot is therefore the
+canonical Lattice runtime used by MPR-MPC. It was copied from the tested local
+TD-MPC2 workspace on 2026-09-27 to make `MPR_MetaDrive` self-contained.
 
 ## lattice_tdmpc2
 

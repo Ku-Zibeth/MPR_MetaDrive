@@ -3,7 +3,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import hydra
 from omegaconf import OmegaConf
 
 from common import MODEL_SIZE, TASK_SET
@@ -54,7 +53,14 @@ def parse_cfg(cfg: OmegaConf) -> OmegaConf:
 			pass
 
 	# Convenience
-	cfg.work_dir = Path(hydra.utils.get_original_cwd()) / 'logs' / cfg.task / str(cfg.seed) / cfg.exp_name
+	if cfg.get('work_dir', None) is None:
+		log_root = cfg.get('log_root', None)
+		if log_root is None:
+			raise ValueError('cfg.log_root must be set when cfg.work_dir is null.')
+		cfg.work_dir = Path(log_root).expanduser() / cfg.task / str(cfg.seed) / cfg.exp_name
+	else:
+		cfg.work_dir = Path(str(cfg.work_dir)).expanduser()
+	cfg.log_root = Path(str(cfg.get('log_root', cfg.work_dir.parent.parent.parent))).expanduser()
 	cfg.task_title = cfg.task.replace("-", " ").title()
 	cfg.bin_size = (cfg.vmax - cfg.vmin) / (cfg.num_bins-1) # Bin size for discrete regression
 

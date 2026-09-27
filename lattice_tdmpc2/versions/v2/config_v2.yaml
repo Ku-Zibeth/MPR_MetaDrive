@@ -11,7 +11,7 @@ planner:
   type: lattice_tdmpc_sac
 residual_rl:
   enabled: true
-  tdmpc2_checkpoint: /home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sac_online_wm_cost_seed1/world_model_final.pt
+  tdmpc2_checkpoint: <MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sac_online_wm_cost_seed1/world_model_final.pt
   training_mode: sac_residual_online_wm
   freeze_tdmpc2: false
   include_wm_return_in_state: true

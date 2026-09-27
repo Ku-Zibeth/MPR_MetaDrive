@@ -1,4 +1,4 @@
-# Run from /home/kzb/kzb_code/tdmpc2 with: sha256sum -c lattice_tdmpc2/versions/checkpoint_sha256.txt
+# Run from <MPR_MetaDrive> with: sha256sum -c lattice_tdmpc2/versions/checkpoint_sha256.txt
 856c98eb927f284ccc2d5bc99982676bb8b4a93a0f6f741237761ddccccbab81  logs/residual_sac/lattice_tdmpc_sac_online_wm_cost_seed1/final.pt
 c877d6b5e363f639f63c48d93ed2ff7ee9de436005a8cc110f353b75bc0d6c3f  logs/residual_sac/lattice_tdmpc_sac_online_wm_cost_seed1/best.pt
 34bb80f0f0fc2216d973e0501852fe5478c6414e879f0f83a25fda5a9cb0223c  logs/residual_sac/lattice_tdmpc_sac_online_wm_cost_seed1/world_model_final.pt

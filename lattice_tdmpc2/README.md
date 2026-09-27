@@ -431,7 +431,7 @@ updates; SAC loss still never backpropagates into TD-MPC2.
 
 ## Training Order
 
-Run all commands from `/home/kzb/kzb_code/tdmpc2` after
+Run all commands from `<MPR_MetaDrive>` after
 `conda activate tdmpc2`.
 
 `lattice_tdmpc2/train.py` is the public training launcher. It reads
@@ -483,7 +483,7 @@ CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/train.py \
   planner.type=lattice_tdmpc_sac \
   residual_rl.enabled=true \
   residual_rl.device=cuda \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
   residual_rl.training_mode=sac_residual_frozen_wm \
   residual_rl.freeze_tdmpc2=true \
   residual_rl.use_world_model_cost=true \
@@ -558,7 +558,7 @@ critics, entropy coefficient, and projected Lagrangian multiplier are updated.
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/train.py \
   planner.type=lattice_tdmpc_sac residual_rl.enabled=true \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
   residual_rl.training_mode=sac_residual_online_wm \
   residual_rl.freeze_tdmpc2=false residual_rl.use_world_model_cost=true \
   residual_rl.include_wm_return_in_state=true \
@@ -586,8 +586,8 @@ CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/train.py \
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate_visual.py \
   algorithm_version=lattice_tdmpc2_v3 \
-  residual_rl.sac_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sacl_frozen_wm_cost5_v3_seed1/final.pt \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
+  residual_rl.sac_checkpoint=<MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sacl_frozen_wm_cost5_v3_seed1/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_cost_v2/models/final.pt \
   residual_rl.device=cuda \
   metadrive.simulator.traffic_density=0.1 \
   metadrive.simulator.accident_prob=0.8 \
@@ -602,8 +602,8 @@ V3 最佳策略。
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate_visual.py \
   algorithm_version=lattice_tdmpc2_v2 \
-  residual_rl.sac_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sacl_online_wm_v2_seed1/final.pt \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sacl_online_wm_v2_seed1/world_model_final.pt \
+  residual_rl.sac_checkpoint=<MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sacl_online_wm_v2_seed1/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sacl_online_wm_v2_seed1/world_model_final.pt \
   residual_rl.device=cuda \
   metadrive.simulator.traffic_density=0.1 \
   metadrive.simulator.accident_prob=0.8 \
@@ -656,7 +656,7 @@ Full method:
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate.py \
   planner.type=lattice_tdmpc_sac \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_metadrive_risk/models/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_metadrive_risk/models/final.pt \
   residual_rl.sac_checkpoint=/absolute/path/to/new_mapping_run/final.pt \
   residual_rl.use_world_model_cost=false eval_episodes=20 \
   metadrive.simulator.start_seed=100 \
@@ -679,8 +679,8 @@ Lattice、右侧是 Ours；两侧均以 BEV 为大图，并在左上角嵌入对
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate_lattice_vs_ours.py \
   --config-name versions/v4/config_v4 \
-  residual_rl.sac_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sacl_v4_frozen_wm2_h10_costq_lane_width_seed1/final.pt \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt \
+  residual_rl.sac_checkpoint=<MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sacl_v4_frozen_wm2_h10_costq_lane_width_seed1/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt \
   residual_rl.device=cuda residual_rl.safe_fallback=false \
   comparison.episodes=20 comparison.scenario_seed=20260916 \
   comparison.frame_stride=2 \
@@ -703,8 +703,8 @@ CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate_lattice_vs_ours.py \
 ```bash
 CUDA_VISIBLE_DEVICES=0 python lattice_tdmpc2/evaluate_lattice_vs_ours_benchmark.py \
   --config-name versions/v4/config_v4 \
-  residual_rl.sac_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/residual_sac/lattice_tdmpc_sacl_v4_frozen_wm2_h10_costq_lane_width_seed1/final.pt \
-  residual_rl.tdmpc2_checkpoint=/home/kzb/kzb_code/tdmpc2/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt \
+  residual_rl.sac_checkpoint=<MPR_MetaDrive>/logs/residual_sac/lattice_tdmpc_sacl_v4_frozen_wm2_h10_costq_lane_width_seed1/final.pt \
+  residual_rl.tdmpc2_checkpoint=<MPR_MetaDrive>/logs/metadrive-risk/1/tdmpc2_mppi_teacher_costq_h10_v1/models/final.pt \
   residual_rl.device=cuda residual_rl.safe_fallback=false \
   benchmark.episodes=200 benchmark.scenario_seed=20260916 \
   benchmark.traffic_densities='[0.1,0.2]' benchmark.max_steps=null \

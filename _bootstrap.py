@@ -9,7 +9,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parent
 VENDOR_ROOT = PACKAGE_ROOT / "vendor"
 TDMPC2_RUNTIME = VENDOR_ROOT / "tdmpc2_runtime"
-LATTICE_RUNTIME = VENDOR_ROOT / "lattice_runtime"
+LOG_ROOT = PACKAGE_ROOT / "logs"
 
 
 def bootstrap() -> None:
@@ -18,7 +18,7 @@ def bootstrap() -> None:
     The vendored TD-MPC2 runtime must precede PACKAGE_ROOT so imports such as
     ``common.buffer`` and ``tdmpc2`` cannot fall through to an outer workspace.
     """
-    required = (TDMPC2_RUNTIME, LATTICE_RUNTIME, PACKAGE_ROOT)
+    required = (TDMPC2_RUNTIME, PACKAGE_ROOT)
     missing = [path for path in required if not path.exists()]
     if missing:
         joined = ", ".join(str(path) for path in missing)
@@ -30,4 +30,4 @@ def bootstrap() -> None:
         sys.path.insert(0, value)
 
 
-__all__ = ["PACKAGE_ROOT", "VENDOR_ROOT", "TDMPC2_RUNTIME", "LATTICE_RUNTIME", "bootstrap"]
+__all__ = ["PACKAGE_ROOT", "VENDOR_ROOT", "TDMPC2_RUNTIME", "LOG_ROOT", "bootstrap"]

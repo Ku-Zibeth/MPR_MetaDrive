@@ -18,7 +18,7 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from mpr_mpc._bootstrap import bootstrap
+from mpr_mpc._bootstrap import LOG_ROOT, bootstrap
 
 bootstrap()
 
@@ -113,6 +113,8 @@ def main(raw_cfg: DictConfig) -> None:
     raw_cfg.compile = False
     raw_cfg.save_agent = False
     raw_cfg.save_csv = False
+    if raw_cfg.get("log_root") is None:
+        raw_cfg.log_root = str(LOG_ROOT)
     cfg = parse_cfg(raw_cfg)
     set_seed(int(cfg.seed))
     checkpoint = Path(str(cfg.checkpoint)).expanduser().resolve()

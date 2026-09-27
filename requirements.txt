@@ -1,6 +1,5 @@
 # Direct dependencies for the MPR-MPC + MetaDrive training path.
-# Install CUDA-enabled PyTorch separately before this file:
-#   python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+# Install the CUDA-enabled PyTorch wheel separately before this file.
 numpy==1.24.4
 hydra-core==1.3.2
 omegaconf==2.3.0

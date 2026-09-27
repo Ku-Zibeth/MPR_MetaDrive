@@ -17,7 +17,7 @@ if str(MPR_ROOT) not in sys.path:
     sys.path.insert(0, str(MPR_ROOT))
 
 from _bootstrap import (  # noqa: E402
-    LATTICE_RUNTIME,
+    LOG_ROOT,
     PACKAGE_ROOT,
     TDMPC2_RUNTIME,
     VENDOR_ROOT,
@@ -28,6 +28,17 @@ from _bootstrap import (  # noqa: E402
 bootstrap()
 
 
+EXPECTED = {
+    "torch": "2.7.1",
+    "metadrive-simulator": "0.4.3",
+    "gymnasium": "0.29.1",
+    "hydra-core": "1.3.2",
+    "omegaconf": "2.3.0",
+    "tensordict": "0.8.3",
+    "torchrl": "0.8.1",
+}
+
+
 def ok(name: str, detail: str = "") -> None:
     suffix = f" - {detail}" if detail else ""
     print(f"[OK] {name}{suffix}")
@@ -36,6 +47,10 @@ def ok(name: str, detail: str = "") -> None:
 def fail(name: str, detail: str) -> None:
     print(f"[FAIL] {name} - {detail}")
     raise SystemExit(1)
+
+
+def warn(name: str, detail: str) -> None:
+    print(f"[WARN] {name} - {detail}")
 
 
 def dist_version(dist: str) -> str:
@@ -54,6 +69,16 @@ def import_module(module: str, dist: str | None = None) -> object:
     version = dist_version(dist) if dist else getattr(mod, "__version__", "imported")
     ok(module, str(version))
     return mod
+
+
+def check_dist(dist: str) -> str:
+    version = dist_version(dist)
+    expected = EXPECTED.get(dist)
+    if expected is not None and version != expected:
+        warn(dist, f"verified version is {expected}, installed version is {version}")
+    else:
+        ok(dist, version)
+    return version
 
 
 def module_file(module: object) -> Path:
@@ -77,22 +102,38 @@ def main() -> None:
     if version.major != 3 or version.minor != 11:
         fail("Python", f"expected 3.11.x, got {platform.python_version()}")
     ok("Python", platform.python_version())
+    ok("Repository root", str(PACKAGE_ROOT.resolve()))
+    ok("Default log root", str(LOG_ROOT.resolve()))
 
     torch = import_module("torch", "torch")
+    torch_version = str(torch.__version__)
+    if not torch_version.startswith(EXPECTED["torch"]):
+        warn("torch", f"verified version starts with {EXPECTED['torch']}, installed is {torch_version}")
+    if str(torch.version.cuda) != "12.6":
+        warn("PyTorch CUDA runtime", f"verified runtime is 12.6, installed is {torch.version.cuda}")
     ok("PyTorch CUDA runtime", str(torch.version.cuda))
     if not torch.cuda.is_available():
         fail("CUDA", "torch.cuda.is_available() is False")
     ok("CUDA", torch.cuda.get_device_name(0))
     ok("CUDA device count", str(torch.cuda.device_count()))
 
+    for dist in (
+        "metadrive-simulator",
+        "gymnasium",
+        "hydra-core",
+        "omegaconf",
+        "tensordict",
+        "torchrl",
+    ):
+        check_dist(dist)
     import_module("numpy", "numpy")
-    import_module("hydra", "hydra-core")
-    import_module("omegaconf", "omegaconf")
+    import_module("hydra")
+    import_module("omegaconf")
     import_module("wandb", "wandb")
-    import_module("gymnasium", "gymnasium")
-    import_module("metadrive", "metadrive-simulator")
-    import_module("tensordict", "tensordict")
-    import_module("torchrl", "torchrl")
+    import_module("gymnasium")
+    import_module("metadrive")
+    import_module("tensordict")
+    import_module("torchrl")
     import_module("pandas", "pandas")
     import_module("scipy", "scipy")
 
@@ -110,8 +151,8 @@ def main() -> None:
 
     assert_under("env", env_mod, PACKAGE_ROOT)
     assert_under("common.buffer", common_buffer, TDMPC2_RUNTIME)
-    assert_under("lattice", lattice_mod, LATTICE_RUNTIME)
-    assert_under("lattice.frenet_metadrive", lattice_impl, LATTICE_RUNTIME)
+    assert_under("lattice", lattice_mod, PACKAGE_ROOT)
+    assert_under("lattice.frenet_metadrive", lattice_impl, PACKAGE_ROOT)
     assert_under("lattice_tdmpc2", lattice_tdmpc2_mod, PACKAGE_ROOT)
     assert_under("tdmpc2", tdmpc2_mod, TDMPC2_RUNTIME)
     assert_under("mpr_mpc.tdmpc2.core", core_mod, PACKAGE_ROOT)
