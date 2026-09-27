@@ -14,12 +14,9 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_ROOT = Path(__file__).resolve().parent
-while str(SCRIPT_ROOT) in sys.path:
-    sys.path.remove(str(SCRIPT_ROOT))
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
 
 from mpr_mpc._bootstrap import bootstrap
 

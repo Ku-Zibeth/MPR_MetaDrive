@@ -1,4 +1,4 @@
-"""Import helpers for the repository's upstream-style TD-MPC2 layout."""
+"""Import helpers for the self-contained MPR-MPC repository."""
 
 from __future__ import annotations
 
@@ -7,17 +7,27 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parent
-TDMPC2_ROOT = REPO_ROOT / "tdmpc2"
+VENDOR_ROOT = PACKAGE_ROOT / "vendor"
+TDMPC2_RUNTIME = VENDOR_ROOT / "tdmpc2_runtime"
+LATTICE_RUNTIME = VENDOR_ROOT / "lattice_runtime"
 
 
 def bootstrap() -> None:
-    """Expose the repository and upstream TD-MPC2 source roots."""
-    for path in (REPO_ROOT, TDMPC2_ROOT):
+    """Expose only repository-local runtime paths.
+
+    The vendored TD-MPC2 runtime must precede PACKAGE_ROOT so imports such as
+    ``common.buffer`` and ``tdmpc2`` cannot fall through to an outer workspace.
+    """
+    required = (TDMPC2_RUNTIME, LATTICE_RUNTIME, PACKAGE_ROOT)
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        joined = ", ".join(str(path) for path in missing)
+        raise RuntimeError(f"Missing vendored MPR-MPC runtime path(s): {joined}")
+    for path in reversed(required):
         value = str(path)
         while value in sys.path:
             sys.path.remove(value)
         sys.path.insert(0, value)
 
 
-__all__ = ["PACKAGE_ROOT", "REPO_ROOT", "TDMPC2_ROOT", "bootstrap"]
+__all__ = ["PACKAGE_ROOT", "VENDOR_ROOT", "TDMPC2_RUNTIME", "LATTICE_RUNTIME", "bootstrap"]

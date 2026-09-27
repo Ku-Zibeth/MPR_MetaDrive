@@ -7,7 +7,7 @@ __pycache__/
 # Virtual environment
 .venv/
 venv/
-env/
+conda-env/
 
 # IDE
 .vscode/
@@ -19,6 +19,11 @@ env/
 
 # Logs
 *.log
+logs/
+wandb/
+checkpoints/
+videos/
+.pytest_cache/
 
 # Model checkpoints
 *.pt

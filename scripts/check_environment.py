@@ -12,13 +12,20 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve()
 MPR_ROOT = SCRIPT.parents[1]
-REPO_ROOT = MPR_ROOT.parent
-TDMPC2_ROOT = REPO_ROOT / "tdmpc2"
 
-for path in (REPO_ROOT, TDMPC2_ROOT):
-    value = str(path)
-    if value not in sys.path:
-        sys.path.insert(0, value)
+if str(MPR_ROOT) not in sys.path:
+    sys.path.insert(0, str(MPR_ROOT))
+
+from _bootstrap import (  # noqa: E402
+    LATTICE_RUNTIME,
+    PACKAGE_ROOT,
+    TDMPC2_RUNTIME,
+    VENDOR_ROOT,
+    bootstrap,
+)
+
+
+bootstrap()
 
 
 def ok(name: str, detail: str = "") -> None:
@@ -49,6 +56,22 @@ def import_module(module: str, dist: str | None = None) -> object:
     return mod
 
 
+def module_file(module: object) -> Path:
+    filename = getattr(module, "__file__", None)
+    if not filename:
+        fail(getattr(module, "__name__", repr(module)), "module has no __file__")
+    return Path(str(filename)).resolve()
+
+
+def assert_under(label: str, module: object, root: Path) -> None:
+    path = module_file(module)
+    try:
+        path.relative_to(root.resolve())
+    except ValueError:
+        fail(label, f"external runtime dependency detected: {path}")
+    ok(f"{label} source", str(path))
+
+
 def main() -> None:
     version = sys.version_info
     if version.major != 3 or version.minor != 11:
@@ -73,12 +96,27 @@ def main() -> None:
     import_module("pandas", "pandas")
     import_module("scipy", "scipy")
 
-    import_module("env")
-    import_module("common.buffer")
+    env_mod = import_module("env")
+    common_buffer = import_module("common.buffer")
+    lattice_mod = import_module("lattice")
+    lattice_impl = import_module("lattice.frenet_metadrive")
+    lattice_tdmpc2_mod = import_module("lattice_tdmpc2")
+    tdmpc2_mod = import_module("tdmpc2")
     import_module("mpr_mpc")
     import_module("mpr_mpc.agent")
     import_module("mpr_mpc.planning.coordinator")
     import_module("mpr_mpc.residual_rl")
+    core_mod = import_module("mpr_mpc.tdmpc2.core")
+
+    assert_under("env", env_mod, PACKAGE_ROOT)
+    assert_under("common.buffer", common_buffer, TDMPC2_RUNTIME)
+    assert_under("lattice", lattice_mod, LATTICE_RUNTIME)
+    assert_under("lattice.frenet_metadrive", lattice_impl, LATTICE_RUNTIME)
+    assert_under("lattice_tdmpc2", lattice_tdmpc2_mod, PACKAGE_ROOT)
+    assert_under("tdmpc2", tdmpc2_mod, TDMPC2_RUNTIME)
+    assert_under("mpr_mpc.tdmpc2.core", core_mod, PACKAGE_ROOT)
+    ok("vendor root", str(VENDOR_ROOT.resolve()))
+    ok("TDMPC2 class module", core_mod.MPRTDMPC2.__mro__[1].__module__)
 
     config_path = MPR_ROOT / "config.yaml"
     if not config_path.is_file():
