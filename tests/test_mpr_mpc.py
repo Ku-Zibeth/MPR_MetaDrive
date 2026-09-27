@@ -216,8 +216,8 @@ class MPRMPCUnitTests(unittest.TestCase):
             "discount": torch.full((6, 1), 0.99),
         }
         info = agent.update(batch)
-        self.assertIn("loss/critic", info)
-        self.assertIn("loss/cost_critic", info)
+        self.assertIn("sac/loss_reward_critic", info)
+        self.assertIn("sac/loss_cost_critic", info)
         self.assertEqual(agent.update_steps, 1)
 
     def test_12_stage_switches_at_global_steps(self):

@@ -4,7 +4,7 @@ defaults:
 task: metadrive-risk
 obs: state
 episodic: true
-algorithm_version: lattice_tdmpc2_v3
+algorithm_version: mpr_mpc_residual_sac_mppi_v2
 checkpoint: null
 resume_checkpoint: null
 checkpoint_freq: 50000
