@@ -73,6 +73,7 @@ class MPRMPCPlanner:
             device=self.device,
             control_dt=self.control_dt,
         )
+        self._print_startup_diagnostics(mppi_cfg)
         self.last_context: MPRPlanContext | None = None
         self.last_result: MPRPlanResult | None = None
         self.residual_invalid_count = 0
@@ -83,6 +84,31 @@ class MPRMPCPlanner:
 
     def set_residual_action_provider(self, provider) -> None:
         self.residual_action_provider = provider
+
+    def _print_startup_diagnostics(self, mppi_cfg) -> None:
+        latent_dim = int(self.cfg.latent_dim)
+        path_features = 12
+        wm_return = 1
+        feasibility = 2
+        wm_cost = 0
+        print(
+            "MPR-MPC configuration\n"
+            "---------------------\n"
+            f"Stage A: [0, {self.mppi_start_step})\n"
+            f"Stage B: [{self.mppi_start_step}, {self.residual_start_step})\n"
+            f"Stage C: [{self.residual_start_step}, ...)\n\n"
+            "Residual algorithm: SAC-Lagrangian\n"
+            f"Residual SAC state_dim={self.residual_state_dim}\n"
+            f"  latent={latent_dim} path_features={path_features} "
+            f"wm_return={wm_return} feasibility={feasibility} wm_cost={wm_cost}\n"
+            "Residual action dim: 2\n"
+            "Physical delta_d bound: dynamic lane width\n"
+            "Physical delta_v bound: 0.5 * coarse speed\n\n"
+            "Local MPPI:\n"
+            f"samples={int(mppi_cfg.get('num_samples', 64))} "
+            f"elites={int(mppi_cfg.get('num_elites', 8))} "
+            f"iterations={int(mppi_cfg.get('iterations', 4))}"
+        )
 
     def stage_for_step(self, global_step: int) -> PlanningStage:
         step = max(0, int(global_step))

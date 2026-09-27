@@ -18,13 +18,18 @@ class ResidualStateBuilder:
         self.device = torch.device(device)
         self.latent_dim = int(latent_dim)
         self.include_wm_cost = bool(cfg.get("include_wm_cost_in_state", False))
+        if self.include_wm_cost:
+            raise ValueError(
+                "residual_rl.include_wm_cost_in_state=true is currently unsupported: "
+                "TrajectoryConsequence has no trained TD-MPC2 cost field. Extend the "
+                "world-model consequence with a real cost head before enabling it."
+            )
         self.wm_return_scale = max(abs(float(cfg.get("wm_return_scale", 50.0))), 1e-6)
         self.wm_cost_scale = max(abs(float(cfg.get("wm_cost_scale", 10.0))), 1e-6)
         self.feature_scales = feature_scales_from_config(cfg)
         self.feature_clip = float(cfg.get("path_feature_clip", 5.0))
         self.state_dim = self.latent_dim + len(FEATURE_NAMES) + 1 + 2
-        if self.include_wm_cost:
-            self.state_dim += 1
+        self.wm_cost_dim = 0
 
     def path_features(self, path) -> torch.Tensor:
         return extract_coarse_path_features(
@@ -63,15 +68,6 @@ class ResidualStateBuilder:
             features,
             wm_return / self.wm_return_scale,
         ]
-        if self.include_wm_cost:
-            if not hasattr(consequence, "cost"):
-                raise ValueError(
-                    "include_wm_cost_in_state=true requires a world-model cost consequence."
-                )
-            wm_cost = consequence.cost.detach().reshape(-1).to(self.device, dtype=torch.float32)
-            if wm_cost.numel() != 1:
-                raise ValueError("Coarse WM cost must be scalar for one selected trajectory.")
-            pieces.append(wm_cost / self.wm_cost_scale)
         pieces.append(
             torch.tensor(
                 [

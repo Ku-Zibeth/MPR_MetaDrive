@@ -105,12 +105,12 @@ residual_rl:
   buffer_size: 200000
   batch_size: 256
   gamma: 0.99
-  tau: 0.005
+  tau: 0.05
   lr: 0.0003
-  actor_lr: 0.0003
-  critic_lr: 0.0003
+  actor_lr: 0.0005
+  critic_lr: 0.001
   alpha_lr: 0.0003
-  alpha: 0.2
+  alpha: 0.005
   auto_alpha: true
   target_entropy: -2.0
   log_std_min: -20.0
@@ -126,10 +126,13 @@ residual_rl:
   learning_starts: 5000
   update_per_step: 0.2
   invalid_residual_penalty: 0.2
+  # Unsupported unless TrajectoryConsequence is extended with a trained TD-MPC2 cost head.
   include_wm_cost_in_state: false
   wm_return_scale: 50.0
   wm_cost_scale: 10.0
   path_feature_clip: 5.0
+  residual_stats_window: 1000
+  zero_like_action_threshold: 0.05
 
 flow:
   enabled: false

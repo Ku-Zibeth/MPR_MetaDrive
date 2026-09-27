@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from .planning.config import mapping, section
@@ -43,6 +45,11 @@ class MPRMPCAgent:
         self.invalid_residual_penalty = max(
             0.0, float(self.residual_cfg.get("invalid_residual_penalty", 0.2))
         )
+        self.zero_like_action_threshold = max(
+            0.0, float(self.residual_cfg.get("zero_like_action_threshold", 0.05))
+        )
+        stats_window = max(1, int(self.residual_cfg.get("residual_stats_window", 1000)))
+        self._residual_stats = deque(maxlen=stats_window)
 
         self.residual_sac = ResidualSACAgent(
             planner.residual_state_dim,
@@ -55,6 +62,7 @@ class MPRMPCAgent:
             action_dim=2,
         )
         self.planner.set_residual_action_provider(self._select_residual_action)
+        self._print_residual_startup_diagnostics()
 
         debug_cfg = mapping(section(cfg, "mpr_mpc").get("debug"))
         self.debug_enabled = bool(debug_cfg.get("enabled", False))
@@ -70,6 +78,22 @@ class MPRMPCAgent:
         self._residual_episode_cost = 0.0
         self._residual_episode_steps = 0
         self._tdmpc_frozen = False
+
+    def _print_residual_startup_diagnostics(self) -> None:
+        print(
+            "\nSAC:\n"
+            f"actor_lr={float(self.residual_cfg.get('actor_lr', 5e-4))} "
+            f"critic_lr={float(self.residual_cfg.get('critic_lr', 1e-3))} "
+            f"alpha={float(self.residual_cfg.get('alpha', 0.005))} "
+            f"auto_alpha={bool(self.residual_cfg.get('auto_alpha', True))} "
+            f"tau={float(self.residual_cfg.get('tau', 0.05))} "
+            f"gamma={float(self.residual_cfg.get('gamma', 0.99))}\n\n"
+            "Lagrangian:\n"
+            f"enabled={self.residual_sac.use_lagrangian} "
+            f"cost_limit={self.residual_sac.cost_limit:g} "
+            f"lr={self.residual_sac.lagrangian.learning_rate:g}\n\n"
+            f"Stage-C TD-MPC2 freeze={self.freeze_tdmpc2_on_start}"
+        )
 
     def set_global_step(self, step: int) -> None:
         self.global_env_step = max(0, int(step))
@@ -144,13 +168,11 @@ class MPRMPCAgent:
             )
             self._pending_residual = None
             if self._residual_episode_steps > 0:
-                value = self.residual_sac.update_lagrangian(self._residual_episode_cost)
                 self.last_residual_transition_metrics.update(
-                    {
-                        "residual_rl/episode_cost": self._residual_episode_cost,
-                        "residual_rl/episode_steps": float(self._residual_episode_steps),
-                        "residual_rl/lagrangian": value,
-                    }
+                    self.residual_sac.update_lagrangian(
+                        self._residual_episode_cost,
+                        self._residual_episode_steps,
+                    )
                 )
             self._residual_episode_cost = 0.0
             self._residual_episode_steps = 0
@@ -204,55 +226,129 @@ class MPRMPCAgent:
                     "action": result.requested_normalized_residual.detach().cpu().numpy(),
                     "valid": bool(result.residual_valid),
                 }
+                self._record_residual_stats(result)
                 self.residual_rl_step += 1
         return result.action
 
-    def update(self, buffer):
-        stage = self.planner.stage_for_step(self.global_env_step)
-        info = {}
-        if not (self._tdmpc_frozen and stage.use_residual):
-            info.update(dict(self.tdmpc_agent.update(buffer)))
-            for key in ("consistency_loss", "reward_loss", "value_loss", "termination_loss"):
-                if key in info:
-                    info[f"wm/{key}"] = info[key]
-        else:
-            info["wm/frozen"] = torch.tensor(1.0, device=self.device)
-
-        if self.planner.enabled and self.residual_rl_enabled and stage.use_residual:
-            residual_info = {
-                "replay_size": torch.tensor(float(len(self.residual_replay)), device=self.device),
-                "local_step": torch.tensor(float(self.residual_rl_step), device=self.device),
-                "update_budget": torch.tensor(float(self.residual_update_budget), device=self.device),
-                "lagrangian": torch.tensor(
-                    float(self.residual_sac.lagrangian_multiplier), device=self.device
+    def _record_residual_stats(self, result) -> None:
+        action = result.requested_normalized_residual.detach().cpu().numpy().reshape(2)
+        delta = result.residual.detach().cpu().numpy().reshape(2)
+        fallback = bool(result.metrics.get("mpr/used_lattice_fallback", 0.0))
+        self._residual_stats.append(
+            {
+                "abs_action": np.abs(action).astype(np.float32),
+                "abs_delta": np.abs(delta).astype(np.float32),
+                "zero_like": float(
+                    abs(action[0]) < self.zero_like_action_threshold
+                    and abs(action[1]) < self.zero_like_action_threshold
                 ),
+                "fallback": float(fallback),
             }
-            if (
-                self.residual_rl_step >= self.residual_learning_starts
-                and len(self.residual_replay) >= self.residual_batch_size
-            ):
-                self.residual_update_budget += self.residual_update_per_step
-                updates = 0
-                while self.residual_update_budget >= 1.0:
-                    batch = self.residual_replay.sample(
-                        self.residual_batch_size,
-                        device=self.device,
-                        gamma=self.residual_gamma,
-                    )
-                    residual_info.update(self.residual_sac.update(batch))
-                    self.residual_update_budget -= 1.0
-                    updates += 1
-                residual_info["updates"] = torch.tensor(float(updates), device=self.device)
-                residual_info["update_budget"] = torch.tensor(
-                    float(self.residual_update_budget), device=self.device
+        )
+
+    def _residual_stats_metrics(self) -> dict[str, torch.Tensor]:
+        if not self._residual_stats:
+            return {}
+        abs_action = np.stack([item["abs_action"] for item in self._residual_stats])
+        abs_delta = np.stack([item["abs_delta"] for item in self._residual_stats])
+        fallback = np.asarray([item["fallback"] for item in self._residual_stats], dtype=np.float32)
+        normal = 1.0 - fallback
+
+        def masked_mean(values, mask):
+            if float(mask.sum()) <= 0.0:
+                return 0.0
+            return float(values[mask > 0.5].mean())
+
+        return {
+            "residual_stats/mean_abs_delta_d": torch.tensor(float(abs_delta[:, 0].mean()), device=self.device),
+            "residual_stats/mean_abs_delta_v": torch.tensor(float(abs_delta[:, 1].mean()), device=self.device),
+            "residual_stats/max_abs_delta_d": torch.tensor(float(abs_delta[:, 0].max()), device=self.device),
+            "residual_stats/max_abs_delta_v": torch.tensor(float(abs_delta[:, 1].max()), device=self.device),
+            "residual_stats/mean_abs_action_d": torch.tensor(float(abs_action[:, 0].mean()), device=self.device),
+            "residual_stats/mean_abs_action_v": torch.tensor(float(abs_action[:, 1].mean()), device=self.device),
+            "residual_stats/zero_like_ratio": torch.tensor(
+                float(np.mean([item["zero_like"] for item in self._residual_stats])),
+                device=self.device,
+            ),
+            "residual_stats/fallback_mean_abs_delta": torch.tensor(
+                masked_mean(abs_delta, fallback), device=self.device
+            ),
+            "residual_stats/normal_mean_abs_delta": torch.tensor(
+                masked_mean(abs_delta, normal), device=self.device
+            ),
+        }
+
+    def update_tdmpc(self, buffer, *, enabled: bool) -> dict[str, torch.Tensor]:
+        info = {}
+        stage = self.planner.stage_for_step(self.global_env_step)
+        if not enabled:
+            info["wm/replay_ready"] = torch.tensor(0.0, device=self.device)
+            return info
+        if self._tdmpc_frozen and stage.use_residual:
+            info["wm/frozen"] = torch.tensor(1.0, device=self.device)
+            return info
+        info.update(dict(self.tdmpc_agent.update(buffer)))
+        for key in ("consistency_loss", "reward_loss", "value_loss", "termination_loss"):
+            if key in info:
+                info[f"wm/{key}"] = info[key]
+        info["wm/replay_ready"] = torch.tensor(1.0, device=self.device)
+        return info
+
+    def update_residual(self, *, enabled: bool = True) -> dict[str, torch.Tensor]:
+        stage = self.planner.stage_for_step(self.global_env_step)
+        if not (enabled and self.planner.enabled and self.residual_rl_enabled and stage.use_residual):
+            return {}
+        info = {
+            "residual_rl/replay_size": torch.tensor(float(len(self.residual_replay)), device=self.device),
+            "residual_rl/local_step": torch.tensor(float(self.residual_rl_step), device=self.device),
+            "residual_rl/update_budget": torch.tensor(float(self.residual_update_budget), device=self.device),
+            "residual_rl/update_steps": torch.tensor(float(self.residual_sac.update_steps), device=self.device),
+            "lagrangian/value": torch.tensor(
+                float(self.residual_sac.lagrangian_multiplier), device=self.device
+            ),
+            "lagrangian/cost_limit": torch.tensor(self.residual_sac.cost_limit, device=self.device),
+        }
+        if (
+            self.residual_rl_step >= self.residual_learning_starts
+            and len(self.residual_replay) >= self.residual_batch_size
+        ):
+            self.residual_update_budget += self.residual_update_per_step
+            updates = 0
+            while self.residual_update_budget >= 1.0:
+                batch = self.residual_replay.sample(
+                    self.residual_batch_size,
+                    device=self.device,
+                    gamma=self.residual_gamma,
                 )
-            info.update({f"residual_rl/{key}": value for key, value in residual_info.items()})
-            info.update(
-                {
-                    key: torch.tensor(value, device=self.device)
-                    for key, value in self.last_residual_transition_metrics.items()
-                }
+                info.update(self.residual_sac.update(batch))
+                self.residual_update_budget -= 1.0
+                updates += 1
+            info["residual_rl/updates"] = torch.tensor(float(updates), device=self.device)
+            info["residual_rl/update_budget"] = torch.tensor(
+                float(self.residual_update_budget), device=self.device
             )
+            info["residual_rl/update_steps"] = torch.tensor(
+                float(self.residual_sac.update_steps), device=self.device
+            )
+        info.update(self._residual_stats_metrics())
+        info.update(
+            {
+                key: torch.tensor(value, device=self.device)
+                for key, value in self.last_residual_transition_metrics.items()
+            }
+        )
+        return info
+
+    def update(
+        self,
+        buffer,
+        *,
+        tdmpc_update_enabled: bool = True,
+        residual_update_enabled: bool = True,
+    ):
+        info = {}
+        info.update(self.update_tdmpc(buffer, enabled=tdmpc_update_enabled))
+        info.update(self.update_residual(enabled=residual_update_enabled))
         if self.last_plan is not None:
             info.update(
                 {

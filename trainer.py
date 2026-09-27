@@ -160,12 +160,17 @@ class MPROnlineTrainer(OnlineTrainer):
                 self.agent.observe_transition(float(reward), env_cost, bool(done), info)
             self._tds.append(self.to_td(observation, action, reward, info["terminated"], cost))
 
-            # Once a complete batch can be formed, exactly one online update per env step.
+            # TD-MPC2 replay readiness and Residual SAC replay readiness are independent.
             replay_ready = self._replay_steps >= minimum_replay_steps
             train_metrics["replay_steps"] = float(self._replay_steps)
             train_metrics["replay_ready"] = float(replay_ready)
-            if replay_ready:
-                train_metrics.update(self.agent.update(self.buffer))
+            train_metrics.update(
+                self.agent.update(
+                    self.buffer,
+                    tdmpc_update_enabled=replay_ready,
+                    residual_update_enabled=True,
+                )
+            )
 
             self._step += 1
             self.agent.set_global_step(self._step)
