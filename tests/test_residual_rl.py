@@ -5,6 +5,7 @@ import tempfile
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from mpr_mpc.agent import MPRMPCAgent
@@ -84,9 +85,16 @@ def _checkpoint_agent():
         ),
         load=lambda state: model.load_state_dict(state["model"], strict=False),
     )
-    agent.cfg = SimpleNamespace(algorithm_version="test_algo")
+    agent.cfg = SimpleNamespace(
+        algorithm_version="test_algo",
+        latent_dim=512,
+        model_size=5,
+        num_q=5,
+        horizon=10,
+    )
     agent.planner = SimpleNamespace(
         enabled=True,
+        residual_state_dim=3,
         mpr_cfg={"stages": {"residual_start_step": 20000, "mppi_start_step": 50000}},
         mppi_cfg={"num_samples": 64, "num_elites": 8, "iterations": 4},
         stage_for_step=lambda step: (
@@ -299,6 +307,13 @@ def test_milestone_component_metadata():
     assert world["format"] == "mpr_mpc_milestone_v1"
     assert world["milestone_type"] == "world_model"
     assert world["stage"] == "A"
+    assert world["metadata"]["latent_dim"] == 512
+    assert world["metadata"]["model_size"] == 5
+    assert world["metadata"]["num_q"] == 5
+    assert world["metadata"]["horizon"] == 10
+    assert world["metadata"]["residual_state_dim"] == 3
+    assert world["metadata"]["residual_action_dim"] == 2
+    assert world["metadata"]["use_lagrangian"]
     assert world["components"] == {
         "world_model": True,
         "residual_rl": False,
@@ -343,4 +358,44 @@ def test_milestone_component_loading():
         target.load_milestone(residual_path, components=["world_model", "residual_rl"])
         assert target.residual_rl_step == source.residual_rl_step
         target.load_milestone(full_path, components=["world_model", "residual_rl", "planner"])
-        assert target.planner.mppi_call_count == source.planner.mppi_call_count
+    assert target.planner.mppi_call_count == source.planner.mppi_call_count
+
+
+def test_milestone_evaluation_stack():
+    from mpr_mpc.evaluate import _apply_evaluation_stack
+
+    planner = SimpleNamespace(allow_residual=True, allow_mppi=True)
+    info = _apply_evaluation_stack(
+        planner,
+        "checkpoint",
+        {"milestone_type": "world_model"},
+    )
+    assert info["stack"] == "world_model"
+    assert not planner.allow_residual
+    assert not planner.allow_mppi
+
+    info = _apply_evaluation_stack(
+        planner,
+        "checkpoint",
+        {"milestone_type": "world_model_residual_rl"},
+    )
+    assert info["stack"] == "world_model_residual_rl"
+    assert planner.allow_residual
+    assert not planner.allow_mppi
+
+    info = _apply_evaluation_stack(
+        planner,
+        "checkpoint",
+        {"milestone_type": "full_mpr_mpc"},
+    )
+    assert info["stack"] == "full_mpr_mpc"
+    assert planner.allow_residual
+    assert planner.allow_mppi
+
+
+def test_checkpoint_config_mismatch():
+    agent = _checkpoint_agent()
+    state = agent.milestone_state("full_mpr_mpc", global_env_step=1000000)
+    agent.planner.mppi_cfg = {"num_samples": 128, "num_elites": 8, "iterations": 4}
+    with pytest.raises(ValueError, match="Checkpoint/config mismatch: .*mppi_config"):
+        agent._check_checkpoint_compatibility(state, strict_planner_config=True)

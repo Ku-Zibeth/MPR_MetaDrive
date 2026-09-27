@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import platform
 import sys
+from argparse import ArgumentParser
 from importlib import metadata
 from pathlib import Path
 
@@ -97,7 +98,42 @@ def assert_under(label: str, module: object, root: Path) -> None:
     ok(f"{label} source", str(path))
 
 
-def main() -> None:
+def full_metadrive_check() -> None:
+    from omegaconf import OmegaConf
+
+    from common.parser import parse_cfg
+    from env import make_env
+
+    cfg = OmegaConf.load(MPR_ROOT / "config.yaml")
+    cfg.enable_wandb = False
+    cfg.save_agent = False
+    cfg.save_csv = False
+    cfg.save_video = False
+    cfg.compile = False
+    cfg.log_root = str(LOG_ROOT)
+    cfg.metadrive.simulator.use_render = False
+    cfg.metadrive.simulator.horizon = 10
+    cfg = parse_cfg(cfg)
+    env = make_env(cfg)
+    try:
+        env.reset(seed=int(cfg.metadrive["simulator"]["start_seed"]))
+        checked_steps = 0
+        for _ in range(3):
+            _, reward, done, info = env.step(env.rand_act())
+            values = {"reward": float(reward)}
+            for key in ("cost", "risk_field_cost"):
+                if key not in info:
+                    fail("MetaDrive full check", f"info missing {key!r}")
+                values[key] = float(info[key])
+            checked_steps += 1
+            if done:
+                break
+    finally:
+        env.close()
+    ok("MetaDrive full reset/step", f"{checked_steps} step(s)")
+
+
+def main(*, full: bool = False) -> None:
     version = sys.version_info
     if version.major != 3 or version.minor != 11:
         fail("Python", f"expected 3.11.x, got {platform.python_version()}")
@@ -105,13 +141,16 @@ def main() -> None:
     ok("Repository root", str(PACKAGE_ROOT.resolve()))
     ok("Default log root", str(LOG_ROOT.resolve()))
 
-    torch = import_module("torch", "torch")
-    torch_version = str(torch.__version__)
-    if not torch_version.startswith(EXPECTED["torch"]):
-        warn("torch", f"verified version starts with {EXPECTED['torch']}, installed is {torch_version}")
-    if str(torch.version.cuda) != "12.6":
+    check_dist("torch")
+    try:
+        torch = importlib.import_module("torch")
+    except Exception as exc:  # noqa: BLE001 - report exact import failure to user
+        fail("torch", repr(exc))
+    cuda_runtime = str(torch.version.cuda)
+    if cuda_runtime != "12.6":
         warn("PyTorch CUDA runtime", f"verified runtime is 12.6, installed is {torch.version.cuda}")
-    ok("PyTorch CUDA runtime", str(torch.version.cuda))
+    else:
+        ok("PyTorch CUDA runtime", cuda_runtime)
     if not torch.cuda.is_available():
         fail("CUDA", "torch.cuda.is_available() is False")
     ok("CUDA", torch.cuda.get_device_name(0))
@@ -168,8 +207,18 @@ def main() -> None:
         fail("algorithm_version", f"expected line not found in {config_path}")
     ok("algorithm_version", "mpr_mpc_residual_sac_mppi_v2")
 
+    if full:
+        full_metadrive_check()
+
     print("Environment check passed.")
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Create a MetaDrive environment and run a short reset/step sanity check.",
+    )
+    args = parser.parse_args()
+    main(full=bool(args.full))

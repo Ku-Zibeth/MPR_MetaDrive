@@ -148,6 +148,8 @@ milestone_checkpoints:
   save_world_model_residual: true
   save_full_model: true
 
+evaluation_stack: checkpoint
+
 flow:
   enabled: false
 self_improve:

@@ -53,14 +53,22 @@ def parse_cfg(cfg: OmegaConf) -> OmegaConf:
 			pass
 
 	# Convenience
+	raw_log_root = cfg.get('log_root', None)
 	if cfg.get('work_dir', None) is None:
-		log_root = cfg.get('log_root', None)
-		if log_root is None:
+		if raw_log_root is None:
 			raise ValueError('cfg.log_root must be set when cfg.work_dir is null.')
-		cfg.work_dir = Path(log_root).expanduser() / cfg.task / str(cfg.seed) / cfg.exp_name
+		log_root = Path(str(raw_log_root)).expanduser()
+		cfg.work_dir = log_root / cfg.task / str(cfg.seed) / cfg.exp_name
 	else:
 		cfg.work_dir = Path(str(cfg.work_dir)).expanduser()
-	cfg.log_root = Path(str(cfg.get('log_root', cfg.work_dir.parent.parent.parent))).expanduser()
+		if raw_log_root is None:
+			try:
+				log_root = cfg.work_dir.parents[2]
+			except IndexError:
+				log_root = cfg.work_dir.parent
+		else:
+			log_root = Path(str(raw_log_root)).expanduser()
+	cfg.log_root = log_root
 	cfg.task_title = cfg.task.replace("-", " ").title()
 	cfg.bin_size = (cfg.vmax - cfg.vmin) / (cfg.num_bins-1) # Bin size for discrete regression
 

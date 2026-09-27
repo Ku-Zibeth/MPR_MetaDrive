@@ -21,6 +21,7 @@ python -m pip install torch==2.7.1 \
 python -m pip install -r requirements.txt
 
 python scripts/check_environment.py
+python scripts/check_environment.py --full
 python -m pytest tests -q
 ```
 
@@ -166,6 +167,12 @@ Then outputs go to:
 /mnt/ssd/mpr_runs/metadrive-risk/1/<exp_name>/
 ```
 
+Override one exact run directory:
+
+```bash
+python train.py work_dir=/mnt/ssd/mpr_runs/metadrive-risk/1/my_run
+```
+
 W&B local files use `cfg.work_dir`, so they also stay under the run directory.
 
 ## Training Architecture
@@ -260,15 +267,15 @@ Milestones:
 ```text
 20K:
   logs/metadrive-risk/1/<exp_name>/models/milestone_20k_world_model.pt
-  World Model only
+  Evaluation stack: Lattice ON, Residual SAC OFF, Local MPPI OFF
 
 50K:
   logs/metadrive-risk/1/<exp_name>/models/milestone_50k_world_model_residual_rl.pt
-  World Model + Residual SAC
+  Evaluation stack: Lattice ON, Residual SAC ON, Local MPPI OFF
 
 1M:
   logs/metadrive-risk/1/<exp_name>/models/milestone_1m_full_mpr_mpc.pt
-  Full MPR-MPC, including planner/MPPI state
+  Evaluation stack: Lattice ON, Residual SAC ON, Local MPPI ON
 ```
 
 Resume:
@@ -282,6 +289,18 @@ resume_checkpoint="$PWD/logs/metadrive-risk/1/<exp_name>/models/latest.pt"
 Replay buffers are not serialized, so resume is not bit-exact continuation.
 
 ## Evaluation
+
+By default `evaluation_stack=checkpoint` infers the runtime stack from the loaded milestone:
+
+```text
+world_model               -> Lattice ON, Residual SAC OFF, Local MPPI OFF
+world_model_residual_rl   -> Lattice ON, Residual SAC ON,  Local MPPI OFF
+full_mpr_mpc              -> Lattice ON, Residual SAC ON,  Local MPPI ON
+regular latest/best/final -> normal stage-based behavior
+```
+
+You can override the stack explicitly with `evaluation_stack=world_model`,
+`evaluation_stack=world_model_residual_rl`, or `evaluation_stack=full_mpr_mpc`.
 
 ```bash
 python evaluate.py \
@@ -306,6 +325,7 @@ Interactive rendering expects a desktop/display-capable environment.
 
 ```bash
 python scripts/check_environment.py
+python scripts/check_environment.py --full
 ```
 
 The script checks:
@@ -324,6 +344,8 @@ repository-local runtime sources
 default log root
 algorithm_version
 ```
+
+`--full` additionally creates the configured MetaDrive environment, runs a reset plus a few random steps, and verifies `reward`, `cost`, and `risk_field_cost`.
 
 Version drift is reported as `[WARN]`; missing CUDA or external runtime source resolution is `[FAIL]`.
 

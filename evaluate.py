@@ -36,7 +36,7 @@ from mpr_mpc.planning.visualization import draw_refinement_overlay  # noqa: E402
 from mpr_mpc.tdmpc2.core import MPRTDMPC2  # noqa: E402
 
 
-def _wandb_run(raw_cfg):
+def _wandb_run(raw_cfg, cfg):
     if not bool(raw_cfg.enable_wandb):
         return None
     import wandb
@@ -48,6 +48,7 @@ def _wandb_run(raw_cfg):
         name=str(name),
         config=OmegaConf.to_container(raw_cfg, resolve=True),
         job_type="evaluation",
+        dir=str(cfg.work_dir),
     )
 
 
@@ -106,6 +107,55 @@ def _render(env, result, episode: int, scenario: int, step: int) -> None:
         draw_refinement_overlay(env.unwrapped_metadrive, result)
 
 
+def _apply_evaluation_stack(planner, requested: str, checkpoint_state: dict | None) -> dict:
+    requested = str(requested or "checkpoint")
+    milestone_type = None
+    if isinstance(checkpoint_state, dict):
+        milestone_type = checkpoint_state.get("milestone_type")
+    if requested == "checkpoint":
+        stack = (
+            str(milestone_type)
+            if milestone_type in {"world_model", "world_model_residual_rl", "full_mpr_mpc"}
+            else "stage"
+        )
+    else:
+        stack = requested
+    if stack == "world_model":
+        planner.allow_residual = False
+        planner.allow_mppi = False
+    elif stack == "world_model_residual_rl":
+        planner.allow_residual = True
+        planner.allow_mppi = False
+    elif stack == "full_mpr_mpc":
+        planner.allow_residual = True
+        planner.allow_mppi = True
+    elif stack != "stage":
+        raise ValueError(
+            "evaluation_stack must be one of checkpoint, world_model, "
+            "world_model_residual_rl, full_mpr_mpc."
+        )
+    return {
+        "milestone_type": milestone_type or "n/a",
+        "stack": stack,
+        "residual": bool(planner.allow_residual) if stack != "stage" else None,
+        "mppi": bool(planner.allow_mppi) if stack != "stage" else None,
+    }
+
+
+def _print_evaluation_stack(stack_info: dict) -> None:
+    stack = stack_info["stack"]
+    residual = stack_info["residual"]
+    mppi = stack_info["mppi"]
+    print(
+        "Evaluation checkpoint:\n"
+        f"  milestone_type: {stack_info['milestone_type']}\n"
+        "Evaluation stack:\n"
+        "  Lattice: ON\n"
+        f"  Residual SAC: {'stage-based' if residual is None else ('ON' if residual else 'OFF')}\n"
+        f"  Local MPPI: {'stage-based' if mppi is None else ('ON' if mppi else 'OFF')}"
+    )
+
+
 @hydra.main(version_base="1.3", config_path=".", config_name="config")
 def main(raw_cfg: DictConfig) -> None:
     if not torch.cuda.is_available():
@@ -124,7 +174,7 @@ def main(raw_cfg: DictConfig) -> None:
     run = None
     summaries = []
     try:
-        run = _wandb_run(raw_cfg)
+        run = _wandb_run(raw_cfg, cfg)
         tdmpc_agent = MPRTDMPC2(cfg)
         lattice_config = dict(FRENET_DEFAULT_CONFIG)
         lattice_config.update(dict(cfg.lattice))
@@ -135,7 +185,13 @@ def main(raw_cfg: DictConfig) -> None:
             action_space=env.action_space,
         )
         agent = MPRMPCAgent(cfg, tdmpc_agent, planner, env)
-        agent.load(checkpoint)
+        checkpoint_state = agent.load(checkpoint)
+        stack_info = _apply_evaluation_stack(
+            planner,
+            str(raw_cfg.get("evaluation_stack", "checkpoint")),
+            checkpoint_state,
+        )
+        _print_evaluation_stack(stack_info)
         agent.eval()
         scenes = _scenarios(cfg)
         print(f"MPR-MPC enabled: {planner.enabled}; scenarios: {scenes.tolist()}")

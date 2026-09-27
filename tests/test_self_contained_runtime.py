@@ -51,6 +51,17 @@ def test_custom_log_root_override(tmp_path):
     assert Path(parsed.work_dir).resolve() == expected.resolve()
 
 
+def test_custom_work_dir_with_null_log_root(tmp_path):
+    cfg = _cfg()
+    work_dir = tmp_path / "runs" / "metadrive-risk" / "7" / "custom_run"
+    cfg.work_dir = str(work_dir)
+    cfg.log_root = None
+    parsed = parse_cfg(cfg)
+    assert Path(parsed.work_dir).resolve() == work_dir.resolve()
+    assert str(parsed.log_root) != "None"
+    assert Path(parsed.log_root).resolve() == (tmp_path / "runs").resolve()
+
+
 def test_model_dir_is_under_work_dir(tmp_path):
     cfg = parse_cfg(_cfg(tmp_path))
     logger = Logger(cfg)

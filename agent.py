@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from omegaconf import OmegaConf
 
 from .planning.config import mapping, section
 from .residual_rl import ResidualReplayBuffer, ResidualSACAgent
@@ -78,6 +79,7 @@ class MPRMPCAgent:
         self._residual_episode_cost = 0.0
         self._residual_episode_steps = 0
         self._tdmpc_frozen = False
+        self.last_loaded_checkpoint_metadata: dict = {}
 
     def _print_residual_startup_diagnostics(self) -> None:
         print(
@@ -384,6 +386,8 @@ class MPRMPCAgent:
     def save(self, filepath) -> None:
         state = {
             "format": "mpr_mpc_v2_residual_sac",
+            "algorithm_version": str(getattr(self.cfg, "algorithm_version", "unknown")),
+            "metadata": self._checkpoint_metadata(),
             "model": self.tdmpc_agent.model.state_dict(),
             "tdmpc_optim": self.tdmpc_agent.optim.state_dict(),
             "tdmpc_pi_optim": self.tdmpc_agent.pi_optim.state_dict(),
@@ -403,6 +407,91 @@ class MPRMPCAgent:
             },
         }
         torch.save(state, Path(filepath))
+
+    @staticmethod
+    def _plain(value):
+        if value is None:
+            return None
+        try:
+            return OmegaConf.to_container(value, resolve=True)
+        except Exception:
+            pass
+        if isinstance(value, dict):
+            return {key: MPRMPCAgent._plain(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [MPRMPCAgent._plain(item) for item in value]
+        return value
+
+    def _checkpoint_metadata(self) -> dict:
+        return {
+            "algorithm_version": str(getattr(self.cfg, "algorithm_version", "unknown")),
+            "latent_dim": int(getattr(self.cfg, "latent_dim")),
+            "model_size": int(getattr(self.cfg, "model_size")),
+            "num_q": int(getattr(self.cfg, "num_q")),
+            "horizon": int(getattr(self.cfg, "horizon")),
+            "residual_state_dim": int(self.planner.residual_state_dim),
+            "residual_action_dim": 2,
+            "use_lagrangian": bool(self.residual_sac.use_lagrangian),
+            "stage_config": self._plain(self.planner.mpr_cfg.get("stages", {})),
+            "mppi_config": self._plain(self.planner.mppi_cfg),
+        }
+
+    def _check_checkpoint_compatibility(
+        self,
+        state: dict,
+        *,
+        strict_planner_config: bool,
+        allow_legacy: bool = False,
+    ) -> None:
+        metadata = state.get("metadata") if isinstance(state, dict) else None
+        if not isinstance(metadata, dict):
+            if allow_legacy:
+                print("[checkpoint] Compatibility metadata missing; loading legacy checkpoint.")
+                return
+            metadata = {}
+        current = self._checkpoint_metadata()
+        checks = [
+            ("algorithm_version", state.get("algorithm_version", metadata.get("algorithm_version"))),
+            ("latent_dim", metadata.get("latent_dim")),
+            ("residual_state_dim", metadata.get("residual_state_dim")),
+            ("residual_action_dim", metadata.get("residual_action_dim")),
+        ]
+        if strict_planner_config:
+            planner_state = state.get("planner") or state.get("mpr_mpc") or {}
+            checks.extend(
+                [
+                    ("model_size", metadata.get("model_size")),
+                    ("num_q", metadata.get("num_q")),
+                    ("horizon", metadata.get("horizon")),
+                    ("use_lagrangian", metadata.get("use_lagrangian")),
+                    (
+                        "stage_config",
+                        planner_state.get("stage_config", metadata.get("stage_config")),
+                    ),
+                    (
+                        "mppi_config",
+                        planner_state.get("mppi_config", metadata.get("mppi_config")),
+                    ),
+                ]
+            )
+        mismatches = []
+        for field, checkpoint_value in checks:
+            if checkpoint_value is None:
+                if allow_legacy:
+                    continue
+                mismatches.append(
+                    f"{field}: checkpoint value missing, current value={current.get(field)!r}"
+                )
+                continue
+            current_value = current.get(field)
+            checkpoint_value = self._plain(checkpoint_value)
+            current_value = self._plain(current_value)
+            if checkpoint_value != current_value:
+                mismatches.append(
+                    f"{field}: checkpoint value={checkpoint_value!r}, current value={current_value!r}"
+                )
+        if mismatches:
+            raise ValueError("Checkpoint/config mismatch: " + "; ".join(mismatches))
 
     def _world_model_state(self) -> dict:
         return {
@@ -459,6 +548,7 @@ class MPRMPCAgent:
                 "residual_rl_trained": include_residual,
                 "mppi_used_during_stage_b": False,
                 "checkpoint_note": "Replay buffers are not serialized.",
+                **self._checkpoint_metadata(),
             },
             **self._world_model_state(),
         }
@@ -495,6 +585,12 @@ class MPRMPCAgent:
         state = torch.load(filepath, map_location=self.device, weights_only=False)
         if not isinstance(state, dict) or state.get("format") != "mpr_mpc_milestone_v1":
             raise ValueError("Expected an mpr_mpc_milestone_v1 checkpoint.")
+        strict = state.get("milestone_type") == "full_mpr_mpc"
+        self._check_checkpoint_compatibility(
+            state,
+            strict_planner_config=strict,
+            allow_legacy=not strict,
+        )
         available = state.get("components", {})
         requested = (
             [name for name, enabled in available.items() if enabled]
@@ -524,6 +620,12 @@ class MPRMPCAgent:
             planner_state = state.get("planner") or mpr_state
             self._load_planner_counters(planner_state)
         self.global_env_step = int(state.get("global_env_step", 0))
+        self.last_loaded_checkpoint_metadata = {
+            "format": state.get("format"),
+            "milestone_type": state.get("milestone_type"),
+            "components": dict(state.get("components", {})),
+            "metadata": dict(state.get("metadata", {})),
+        }
         return state
 
     def _load_planner_counters(self, mpr_state: dict) -> None:
@@ -538,23 +640,28 @@ class MPRMPCAgent:
         self.planner.mppi_call_count = int(mpr_state.get("mppi_call_count", 0))
         self.planner.baseline_selected_count = int(mpr_state.get("baseline_selected_count", 0))
 
-    def load(self, filepath, *, load_optimizer: bool = False) -> None:
+    def load(self, filepath, *, load_optimizer: bool = False) -> dict:
         state = torch.load(filepath, map_location=self.device, weights_only=False)
         if isinstance(state, dict) and state.get("format") == "mpr_mpc_milestone_v1":
             components = [
                 name for name, enabled in state.get("components", {}).items() if enabled
             ]
-            self.load_milestone(
+            loaded = self.load_milestone(
                 filepath,
                 components=components,
                 load_optimizer=load_optimizer,
             )
-            return
+            return loaded
         if not isinstance(state, dict) or state.get("format") != "mpr_mpc_v2_residual_sac":
             raise ValueError(
                 "Refusing to resume an incompatible MPR-MPC checkpoint. Start from scratch with "
                 "resume_checkpoint=null or provide an mpr_mpc_v2_residual_sac checkpoint."
             )
+        self._check_checkpoint_compatibility(
+            state,
+            strict_planner_config=False,
+            allow_legacy=True,
+        )
         self.tdmpc_agent.load(state)
         mpr_state = state.get("mpr_mpc") if isinstance(state, dict) else None
         if not mpr_state:
@@ -573,6 +680,13 @@ class MPRMPCAgent:
         best_key = state.get("best_eval_key")
         self.best_eval_key = tuple(best_key) if best_key is not None else None
         self._load_planner_counters(mpr_state)
+        self.last_loaded_checkpoint_metadata = {
+            "format": state.get("format"),
+            "milestone_type": None,
+            "components": {},
+            "metadata": dict(state.get("metadata", {})),
+        }
+        return state
 
     def eval(self):
         self.tdmpc_agent.eval()

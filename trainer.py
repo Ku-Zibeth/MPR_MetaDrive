@@ -68,7 +68,7 @@ class MPROnlineTrainer(OnlineTrainer):
         if bool(self._milestone_cfg.get("save_world_model", True)):
             specs.append(
                 {
-                    "key": "milestone_20k_saved",
+                    "key": "world_model_milestone_saved",
                     "step": world_step,
                     "type": "world_model",
                     "filename": f"milestone_{self._step_label(world_step)}_world_model.pt",
@@ -78,7 +78,7 @@ class MPROnlineTrainer(OnlineTrainer):
         if bool(self._milestone_cfg.get("save_world_model_residual", True)):
             specs.append(
                 {
-                    "key": "milestone_50k_saved",
+                    "key": "world_model_residual_milestone_saved",
                     "step": residual_step,
                     "type": "world_model_residual_rl",
                     "filename": (
@@ -91,7 +91,7 @@ class MPROnlineTrainer(OnlineTrainer):
         if bool(self._milestone_cfg.get("save_full_model", True)):
             specs.append(
                 {
-                    "key": "milestone_1m_saved",
+                    "key": "full_model_milestone_saved",
                     "step": full_step,
                     "type": "full_mpr_mpc",
                     "filename": f"milestone_{self._step_label(full_step)}_full_mpr_mpc.pt",
@@ -121,6 +121,7 @@ class MPROnlineTrainer(OnlineTrainer):
                 continue
             path = Path(self.logger.model_dir) / str(spec["filename"])
             metric = f"checkpoint/{spec['key']}"
+            metrics["checkpoint/milestone_step"] = float(milestone_step)
             if path.exists():
                 metrics[metric] = 0.0
                 continue
