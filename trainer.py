@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from time import time
 
 import numpy as np
 import torch
 
 from mpr_mpc._bootstrap import bootstrap
+from mpr_mpc.planning.config import mapping, section
+from mpr_mpc.training_schedule import tdmpc_update_gate
 
 
 bootstrap()
@@ -31,10 +34,117 @@ class MPROnlineTrainer(OnlineTrainer):
         self._best_eval_key = self.agent.best_eval_key
         self._checkpoint_freq = int(self.cfg.get("checkpoint_freq", 50000))
         self._start_time = time()
+        stage_training = mapping(section(self.cfg, "tdmpc_stage_training"))
+        self._tdmpc_update_ratios = {
+            "A": float(stage_training.get("stage_a_update_ratio", 1.0)),
+            "B": float(stage_training.get("stage_b_update_ratio", 1.0)),
+            "C": float(stage_training.get("stage_c_update_ratio", 0.25)),
+        }
+        self._tdmpc_update_budget = 0.0
+        self._milestone_cfg = mapping(section(self.cfg, "milestone_checkpoints"))
+        self._reported_missed_milestones: set[str] = set()
+        self._report_missed_historical_milestones()
 
     def _save_checkpoint(self, identifier: str) -> None:
         self.agent.set_global_step(self._step)
         self.logger.save_agent(self.agent, identifier)
+
+    @staticmethod
+    def _step_label(step: int) -> str:
+        step = int(step)
+        if step % 1_000_000 == 0:
+            return f"{step // 1_000_000}m"
+        if step % 1000 == 0:
+            return f"{step // 1000}k"
+        return str(step)
+
+    def _milestone_specs(self) -> list[dict]:
+        if not bool(self._milestone_cfg.get("enabled", True)):
+            return []
+        specs = []
+        world_step = int(self._milestone_cfg.get("world_model_step", 20000))
+        residual_step = int(self._milestone_cfg.get("world_model_residual_step", 50000))
+        full_step = int(self._milestone_cfg.get("full_model_step", int(self.cfg.steps)))
+        if bool(self._milestone_cfg.get("save_world_model", True)):
+            specs.append(
+                {
+                    "key": "milestone_20k_saved",
+                    "step": world_step,
+                    "type": "world_model",
+                    "filename": f"milestone_{self._step_label(world_step)}_world_model.pt",
+                    "message": "Stage-A World Model",
+                }
+            )
+        if bool(self._milestone_cfg.get("save_world_model_residual", True)):
+            specs.append(
+                {
+                    "key": "milestone_50k_saved",
+                    "step": residual_step,
+                    "type": "world_model_residual_rl",
+                    "filename": (
+                        f"milestone_{self._step_label(residual_step)}_"
+                        "world_model_residual_rl.pt"
+                    ),
+                    "message": "Stage-B World Model + Residual SAC",
+                }
+            )
+        if bool(self._milestone_cfg.get("save_full_model", True)):
+            specs.append(
+                {
+                    "key": "milestone_1m_saved",
+                    "step": full_step,
+                    "type": "full_mpr_mpc",
+                    "filename": f"milestone_{self._step_label(full_step)}_full_mpr_mpc.pt",
+                    "message": "Stage-C Full MPR-MPC",
+                }
+            )
+        return specs
+
+    def _report_missed_historical_milestones(self) -> None:
+        if self._step <= 0:
+            return
+        for spec in self._milestone_specs():
+            if self._step > int(spec["step"]):
+                path = Path(self.logger.model_dir) / str(spec["filename"])
+                if not path.exists() and spec["key"] not in self._reported_missed_milestones:
+                    print(
+                        "[checkpoint] Historical milestone missed; "
+                        f"not saving {path.name} from resumed step {self._step:,}."
+                    )
+                    self._reported_missed_milestones.add(spec["key"])
+
+    def _maybe_save_milestones(self, previous_step: int, current_step: int) -> dict[str, float]:
+        metrics = {}
+        for spec in self._milestone_specs():
+            milestone_step = int(spec["step"])
+            if not (int(previous_step) < milestone_step <= int(current_step)):
+                continue
+            path = Path(self.logger.model_dir) / str(spec["filename"])
+            metric = f"checkpoint/{spec['key']}"
+            if path.exists():
+                metrics[metric] = 0.0
+                continue
+            self.agent.set_global_step(milestone_step)
+            self.agent.save_milestone(
+                path,
+                milestone_type=str(spec["type"]),
+                global_env_step=milestone_step,
+            )
+            self.agent.set_global_step(current_step)
+            print(
+                f"[checkpoint] Saved {spec['message']} milestone at {milestone_step:,}: {path}"
+            )
+            metrics[metric] = 1.0
+        return metrics
+
+    def _tdmpc_update_gate(self, stage_name: str, replay_ready: bool) -> tuple[bool, float, int]:
+        enabled, self._tdmpc_update_budget, ratio, updates = tdmpc_update_gate(
+            stage_name=stage_name,
+            replay_ready=replay_ready,
+            budget=self._tdmpc_update_budget,
+            ratios=self._tdmpc_update_ratios,
+        )
+        return enabled, ratio, updates
 
     def _handle_eval(self) -> dict[str, float]:
         metrics = self.eval()
@@ -162,18 +272,38 @@ class MPROnlineTrainer(OnlineTrainer):
 
             # TD-MPC2 replay readiness and Residual SAC replay readiness are independent.
             replay_ready = self._replay_steps >= minimum_replay_steps
+            stage = self.agent.planner.stage_for_step(self._step)
+            tdmpc_update_enabled, tdmpc_ratio, tdmpc_updates = self._tdmpc_update_gate(
+                stage.name,
+                replay_ready,
+            )
             train_metrics["replay_steps"] = float(self._replay_steps)
             train_metrics["replay_ready"] = float(replay_ready)
-            train_metrics.update(
-                self.agent.update(
-                    self.buffer,
-                    tdmpc_update_enabled=replay_ready,
-                    residual_update_enabled=True,
-                )
+            update_metrics = self.agent.update(
+                self.buffer,
+                tdmpc_update_enabled=tdmpc_update_enabled,
+                residual_update_enabled=True,
             )
-
+            train_metrics.update(update_metrics)
+            train_metrics.update(
+                {
+                    "train/stage": float(ord(stage.name) - ord("A")),
+                    "train/tdmpc_update_ratio": float(tdmpc_ratio),
+                    "train/tdmpc_updates": float(tdmpc_updates),
+                    "train/residual_updates": float(
+                        torch.as_tensor(
+                            update_metrics.get("residual_rl/updates", 0.0),
+                            device="cpu",
+                        )
+                    ),
+                    "train/residual_active": float(stage.use_residual),
+                    "train/mppi_active": float(stage.use_mppi),
+                }
+            )
+            previous_step = self._step
             self._step += 1
             self.agent.set_global_step(self._step)
+            train_metrics.update(self._maybe_save_milestones(previous_step, self._step))
             if self._step >= next_eval:
                 eval_next = True
                 while next_eval <= self._step:
@@ -184,6 +314,9 @@ class MPROnlineTrainer(OnlineTrainer):
                     next_checkpoint += self._checkpoint_freq
 
         self.agent.set_global_step(self._step)
+        final_milestones = self._maybe_save_milestones(self._step - 1, self._step)
+        if final_milestones:
+            self.logger.log(final_milestones, "train")
         self.logger.finish(self.agent)
 
 

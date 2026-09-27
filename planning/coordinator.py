@@ -33,10 +33,10 @@ class MPRMPCPlanner:
         self.allow_residual = bool(self.mpr_cfg.get("use_residual", True))
         self.allow_mppi = bool(self.mpr_cfg.get("use_mppi", True))
         stages = mapping(self.mpr_cfg.get("stages"))
-        self.mppi_start_step = int(stages.get("mppi_start_step", 20000))
-        self.residual_start_step = int(stages.get("residual_start_step", 50000))
-        if not 0 <= self.mppi_start_step <= self.residual_start_step:
-            raise ValueError("Require 0 <= mppi_start_step <= residual_start_step.")
+        self.residual_start_step = int(stages.get("residual_start_step", 20000))
+        self.mppi_start_step = int(stages.get("mppi_start_step", 50000))
+        if not 0 <= self.residual_start_step <= self.mppi_start_step:
+            raise ValueError("Require 0 <= residual_start_step <= mppi_start_step.")
 
         simulator = mapping(section(cfg, "metadrive").get("simulator"))
         self.control_dt = float(simulator.get("physics_world_step_size", 0.02)) * float(
@@ -94,9 +94,11 @@ class MPRMPCPlanner:
         print(
             "MPR-MPC configuration\n"
             "---------------------\n"
-            f"Stage A: [0, {self.mppi_start_step})\n"
-            f"Stage B: [{self.mppi_start_step}, {self.residual_start_step})\n"
-            f"Stage C: [{self.residual_start_step}, ...)\n\n"
+            f"Stage A: [0, {self.residual_start_step}) Lattice + TD-MPC2\n"
+            f"Stage B: [{self.residual_start_step}, {self.mppi_start_step}) "
+            "Lattice + Residual SAC, MPPI OFF\n"
+            f"Stage C: [{self.mppi_start_step}, ...) "
+            "Lattice + Residual SAC + Local MPPI\n\n"
             "Residual algorithm: SAC-Lagrangian\n"
             f"Residual SAC state_dim={self.residual_state_dim}\n"
             f"  latent={latent_dim} path_features={path_features} "
@@ -112,10 +114,10 @@ class MPRMPCPlanner:
 
     def stage_for_step(self, global_step: int) -> PlanningStage:
         step = max(0, int(global_step))
-        if step < self.mppi_start_step:
-            return PlanningStage("A", False, False)
         if step < self.residual_start_step:
-            return PlanningStage("B", False, self.allow_mppi)
+            return PlanningStage("A", False, False)
+        if step < self.mppi_start_step:
+            return PlanningStage("B", self.allow_residual, False)
         return PlanningStage("C", self.allow_residual, self.allow_mppi)
 
     def reset(self) -> None:

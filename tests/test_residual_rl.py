@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 
 import numpy as np
 import torch
 
 from mpr_mpc.agent import MPRMPCAgent
+from mpr_mpc.planning.coordinator import MPRMPCPlanner
 from mpr_mpc.planning.types import PlanningStage
 from mpr_mpc.residual_rl import ResidualReplayBuffer, ResidualSACAgent, ResidualStateBuilder
+from mpr_mpc.training_schedule import tdmpc_update_gate
 
 
 def _batch(batch_size=8, state_dim=6, *, done=0.0):
@@ -22,12 +26,17 @@ def _batch(batch_size=8, state_dim=6, *, done=0.0):
     }
 
 
-def _bare_agent(*, state_dim=3, batch_size=2):
+def _bare_agent(*, state_dim=3, batch_size=2, stage_name="C"):
+    stage_flags = {
+        "A": PlanningStage("A", False, False),
+        "B": PlanningStage("B", True, False),
+        "C": PlanningStage("C", True, True),
+    }
     agent = MPRMPCAgent.__new__(MPRMPCAgent)
     agent.device = torch.device("cpu")
     agent.planner = SimpleNamespace(
         enabled=True,
-        stage_for_step=lambda _step: PlanningStage("C", True, True),
+        stage_for_step=lambda _step: stage_flags[stage_name],
     )
     agent.residual_rl_enabled = True
     agent.residual_learning_starts = 0
@@ -59,6 +68,44 @@ def _bare_agent(*, state_dim=3, batch_size=2):
     agent.tdmpc_agent = SimpleNamespace(
         update=lambda _buffer: (_ for _ in ()).throw(AssertionError("TD-MPC2 update called"))
     )
+    return agent
+
+
+def _checkpoint_agent():
+    agent = _bare_agent(state_dim=3, batch_size=2, stage_name="C")
+    model = torch.nn.Linear(3, 2)
+    agent.tdmpc_agent = SimpleNamespace(
+        model=model,
+        optim=torch.optim.Adam(model.parameters(), lr=1e-3),
+        pi_optim=torch.optim.Adam(model.parameters(), lr=1e-3),
+        scale=SimpleNamespace(
+            state_dict=lambda: {"scale": torch.tensor(1.0)},
+            load_state_dict=lambda state: None,
+        ),
+        load=lambda state: model.load_state_dict(state["model"], strict=False),
+    )
+    agent.cfg = SimpleNamespace(algorithm_version="test_algo")
+    agent.planner = SimpleNamespace(
+        enabled=True,
+        mpr_cfg={"stages": {"residual_start_step": 20000, "mppi_start_step": 50000}},
+        mppi_cfg={"num_samples": 64, "num_elites": 8, "iterations": 4},
+        stage_for_step=lambda step: (
+            PlanningStage("A", False, False)
+            if step < 20000
+            else PlanningStage("B", True, False)
+            if step < 50000
+            else PlanningStage("C", True, True)
+        ),
+        residual_invalid_count=1,
+        residual_attempt_count=2,
+        mppi_call_count=3,
+        baseline_selected_count=4,
+    )
+    agent.residual_cfg = {"enabled": True}
+    agent._planner_calls = 5
+    agent._tdmpc_frozen = False
+    agent.global_env_step = 0
+    agent.best_eval_key = None
     return agent
 
 
@@ -192,3 +239,108 @@ def test_residual_update_not_blocked_by_tdmpc_replay():
     assert float(info["wm/replay_ready"]) == 0.0
     assert agent.residual_sac.update_steps == 1
     assert float(info["residual_rl/updates"]) == 1.0
+
+
+def test_new_stage_boundaries_and_mppi_activation():
+    fake = SimpleNamespace(
+        residual_start_step=20000,
+        mppi_start_step=50000,
+        allow_mppi=True,
+        allow_residual=True,
+    )
+    expected = {
+        0: ("A", False, False),
+        19999: ("A", False, False),
+        20000: ("B", True, False),
+        49999: ("B", True, False),
+        50000: ("C", True, True),
+    }
+    for step, value in expected.items():
+        stage = MPRMPCPlanner.stage_for_step(fake, step)
+        assert (stage.name, stage.use_residual, stage.use_mppi) == value
+
+
+def test_tdmpc_stage_update_ratio_budget():
+    ratios = {"A": 1.0, "B": 1.0, "C": 0.25}
+    enabled, budget, ratio, updates = tdmpc_update_gate(
+        stage_name="A", replay_ready=True, budget=0.0, ratios=ratios
+    )
+    assert (enabled, ratio, updates) == (True, 1.0, 1)
+    enabled, budget, ratio, updates = tdmpc_update_gate(
+        stage_name="B", replay_ready=True, budget=0.0, ratios=ratios
+    )
+    assert (enabled, ratio, updates) == (True, 1.0, 1)
+    budget = 0.0
+    updates = []
+    for _ in range(8):
+        _, budget, _, update_count = tdmpc_update_gate(
+            stage_name="C", replay_ready=True, budget=budget, ratios=ratios
+        )
+        updates.append(update_count)
+    assert sum(updates) == 2
+
+
+def test_residual_training_stage_a_off_stage_b_and_c_on():
+    stage_a = _bare_agent(stage_name="A")
+    assert stage_a.update_residual(enabled=True) == {}
+    stage_b = _bare_agent(stage_name="B")
+    info_b = stage_b.update_residual(enabled=True)
+    assert stage_b.residual_sac.update_steps == 1
+    assert float(info_b["residual_rl/updates"]) == 1.0
+    stage_c = _bare_agent(stage_name="C")
+    info_c = stage_c.update_residual(enabled=True)
+    assert stage_c.residual_sac.update_steps == 1
+    assert float(info_c["residual_rl/updates"]) == 1.0
+
+
+def test_milestone_component_metadata():
+    agent = _checkpoint_agent()
+    world = agent.milestone_state("world_model", global_env_step=20000)
+    assert world["format"] == "mpr_mpc_milestone_v1"
+    assert world["milestone_type"] == "world_model"
+    assert world["stage"] == "A"
+    assert world["components"] == {
+        "world_model": True,
+        "residual_rl": False,
+        "planner": False,
+        "mppi": False,
+    }
+    residual = agent.milestone_state("world_model_residual_rl", global_env_step=50000)
+    assert residual["milestone_type"] == "world_model_residual_rl"
+    assert residual["components"]["world_model"]
+    assert residual["components"]["residual_rl"]
+    assert not residual["components"]["mppi"]
+    full = agent.milestone_state("full_mpr_mpc", global_env_step=1000000)
+    assert full["milestone_type"] == "full_mpr_mpc"
+    assert full["components"]["world_model"]
+    assert full["components"]["residual_rl"]
+    assert full["components"]["planner"]
+    assert full["components"]["mppi"]
+    assert "mppi_config" in full["planner"]
+
+
+def test_milestone_component_loading():
+    source = _checkpoint_agent()
+    target = _checkpoint_agent()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        world_path = Path(tmpdir) / "milestone_20k_world_model.pt"
+        residual_path = Path(tmpdir) / "milestone_50k_world_model_residual_rl.pt"
+        full_path = Path(tmpdir) / "milestone_1m_full_mpr_mpc.pt"
+        source.save_milestone(world_path, milestone_type="world_model", global_env_step=20000)
+        source.save_milestone(
+            residual_path,
+            milestone_type="world_model_residual_rl",
+            global_env_step=50000,
+        )
+        source.save_milestone(full_path, milestone_type="full_mpr_mpc", global_env_step=1000000)
+        target.load_milestone(world_path, components=["world_model"])
+        try:
+            target.load_milestone(world_path, components=["residual_rl"])
+        except ValueError as exc:
+            assert "does not contain" in str(exc)
+        else:
+            raise AssertionError("20K world-model milestone must not load residual_rl")
+        target.load_milestone(residual_path, components=["world_model", "residual_rl"])
+        assert target.residual_rl_step == source.residual_rl_step
+        target.load_milestone(full_path, components=["world_model", "residual_rl", "planner"])
+        assert target.planner.mppi_call_count == source.planner.mppi_call_count

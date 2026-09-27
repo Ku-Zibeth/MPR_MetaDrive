@@ -4,7 +4,7 @@ defaults:
 task: metadrive-risk
 obs: state
 episodic: true
-algorithm_version: mpr_mpc_residual_sac_lagrangian_v1
+algorithm_version: lattice_tdmpc2_v3
 checkpoint: null
 resume_checkpoint: null
 checkpoint_freq: 50000
@@ -62,8 +62,8 @@ mpr_mpc:
   use_residual: true
   use_mppi: true
   stages:
-    mppi_start_step: 20000
-    residual_start_step: 50000
+    residual_start_step: 20000
+    mppi_start_step: 50000
   refinement:
     min_speed: 0.5
     max_speed: 20.0
@@ -120,7 +120,7 @@ residual_rl:
   lagrangian_lr: 0.01
   lagrangian_initial: 0.0
   lagrangian_rescaling: true
-  freeze_tdmpc2_on_start: true
+  freeze_tdmpc2_on_start: false
   seed_steps: 5000
   warmup_action_scale: 0.5
   learning_starts: 5000
@@ -133,6 +133,20 @@ residual_rl:
   path_feature_clip: 5.0
   residual_stats_window: 1000
   zero_like_action_threshold: 0.05
+
+tdmpc_stage_training:
+  stage_a_update_ratio: 1.0
+  stage_b_update_ratio: 1.0
+  stage_c_update_ratio: 0.25
+
+milestone_checkpoints:
+  enabled: true
+  world_model_step: 20000
+  world_model_residual_step: 50000
+  full_model_step: 1000000
+  save_world_model: true
+  save_world_model_residual: true
+  save_full_model: true
 
 flow:
   enabled: false

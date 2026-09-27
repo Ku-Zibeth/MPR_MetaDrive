@@ -222,8 +222,8 @@ class MPRMPCUnitTests(unittest.TestCase):
 
     def test_12_stage_switches_at_global_steps(self):
         fake = SimpleNamespace(
-            mppi_start_step=20000,
-            residual_start_step=50000,
+            residual_start_step=20000,
+            mppi_start_step=50000,
             allow_mppi=True,
             allow_residual=True,
         )
@@ -231,7 +231,7 @@ class MPRMPCUnitTests(unittest.TestCase):
         stage_b = MPRMPCPlanner.stage_for_step(fake, 30000)
         stage_c = MPRMPCPlanner.stage_for_step(fake, 60000)
         self.assertEqual((stage_a.use_residual, stage_a.use_mppi), (False, False))
-        self.assertEqual((stage_b.use_residual, stage_b.use_mppi), (False, True))
+        self.assertEqual((stage_b.use_residual, stage_b.use_mppi), (True, False))
         self.assertEqual((stage_c.use_residual, stage_c.use_mppi), (True, True))
 
     def test_a_vehicle_width_is_applied_to_raw_road_bounds(self):

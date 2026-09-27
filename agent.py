@@ -404,8 +404,152 @@ class MPRMPCAgent:
         }
         torch.save(state, Path(filepath))
 
+    def _world_model_state(self) -> dict:
+        return {
+            "model": self.tdmpc_agent.model.state_dict(),
+            "tdmpc_optim": self.tdmpc_agent.optim.state_dict(),
+            "tdmpc_pi_optim": self.tdmpc_agent.pi_optim.state_dict(),
+            "tdmpc_scale": self.tdmpc_agent.scale.state_dict(),
+        }
+
+    def _planner_state(self) -> dict:
+        return {
+            "planner_calls": self._planner_calls,
+            "tdmpc_frozen": self._tdmpc_frozen,
+            "residual_invalid_count": self.planner.residual_invalid_count,
+            "residual_attempt_count": self.planner.residual_attempt_count,
+            "mppi_call_count": self.planner.mppi_call_count,
+            "baseline_selected_count": self.planner.baseline_selected_count,
+            "stage_config": dict(self.planner.mpr_cfg.get("stages", {})),
+            "mppi_config": dict(self.planner.mppi_cfg),
+            "residual_config": dict(self.residual_cfg),
+        }
+
+    def _residual_state(self) -> dict:
+        return {
+            "residual_sac": self.residual_sac.state_dict(),
+            "residual_rl_step": self.residual_rl_step,
+            "residual_update_budget": self.residual_update_budget,
+            "residual_update_steps": self.residual_sac.update_steps,
+        }
+
+    def milestone_state(self, milestone_type: str, *, global_env_step: int | None = None) -> dict:
+        step = self.global_env_step if global_env_step is None else int(global_env_step)
+        include_residual = milestone_type in {"world_model_residual_rl", "full_mpr_mpc"}
+        include_planner = milestone_type == "full_mpr_mpc"
+        include_mppi = milestone_type == "full_mpr_mpc"
+        milestone_stage = {
+            "world_model": "A",
+            "world_model_residual_rl": "B",
+            "full_mpr_mpc": "C",
+        }.get(str(milestone_type), self.planner.stage_for_step(step).name)
+        state = {
+            "format": "mpr_mpc_milestone_v1",
+            "algorithm_version": str(getattr(self.cfg, "algorithm_version", "unknown")),
+            "milestone_type": str(milestone_type),
+            "global_env_step": step,
+            "stage": milestone_stage,
+            "components": {
+                "world_model": True,
+                "residual_rl": include_residual,
+                "planner": include_planner,
+                "mppi": include_mppi,
+            },
+            "metadata": {
+                "residual_rl_trained": include_residual,
+                "mppi_used_during_stage_b": False,
+                "checkpoint_note": "Replay buffers are not serialized.",
+            },
+            **self._world_model_state(),
+        }
+        if include_residual:
+            state["mpr_mpc"] = {**self._residual_state(), **self._planner_state()}
+        elif milestone_type == "world_model":
+            state["mpr_mpc"] = {
+                "residual_rl_trained": False,
+                "planner_calls": self._planner_calls,
+            }
+        if include_planner:
+            state["planner"] = self._planner_state()
+        return state
+
+    def save_milestone(
+        self,
+        filepath,
+        *,
+        milestone_type: str,
+        global_env_step: int | None = None,
+    ) -> None:
+        torch.save(
+            self.milestone_state(milestone_type, global_env_step=global_env_step),
+            Path(filepath),
+        )
+
+    def load_milestone(
+        self,
+        filepath,
+        *,
+        components=None,
+        load_optimizer: bool = False,
+    ) -> dict:
+        state = torch.load(filepath, map_location=self.device, weights_only=False)
+        if not isinstance(state, dict) or state.get("format") != "mpr_mpc_milestone_v1":
+            raise ValueError("Expected an mpr_mpc_milestone_v1 checkpoint.")
+        available = state.get("components", {})
+        requested = (
+            [name for name, enabled in available.items() if enabled]
+            if components is None
+            else list(components)
+        )
+        missing = [name for name in requested if not bool(available.get(name, False))]
+        if missing:
+            raise ValueError(
+                f"Milestone {filepath} does not contain requested component(s): {missing}."
+            )
+        if "world_model" in requested:
+            self.tdmpc_agent.load({"model": state["model"]})
+            if load_optimizer:
+                self.tdmpc_agent.optim.load_state_dict(state["tdmpc_optim"])
+                self.tdmpc_agent.pi_optim.load_state_dict(state["tdmpc_pi_optim"])
+                self.tdmpc_agent.scale.load_state_dict(state["tdmpc_scale"])
+        mpr_state = state.get("mpr_mpc") or {}
+        if "residual_rl" in requested:
+            self.residual_sac.load_state_dict(
+                mpr_state["residual_sac"],
+                load_optimizer=load_optimizer,
+            )
+            self.residual_rl_step = int(mpr_state.get("residual_rl_step", 0))
+            self.residual_update_budget = float(mpr_state.get("residual_update_budget", 0.0))
+        if "planner" in requested:
+            planner_state = state.get("planner") or mpr_state
+            self._load_planner_counters(planner_state)
+        self.global_env_step = int(state.get("global_env_step", 0))
+        return state
+
+    def _load_planner_counters(self, mpr_state: dict) -> None:
+        self._planner_calls = int(mpr_state.get("planner_calls", 0))
+        self._tdmpc_frozen = bool(mpr_state.get("tdmpc_frozen", False))
+        if self._tdmpc_frozen:
+            self.tdmpc_agent.model.eval()
+            for parameter in self.tdmpc_agent.model.parameters():
+                parameter.requires_grad_(False)
+        self.planner.residual_invalid_count = int(mpr_state.get("residual_invalid_count", 0))
+        self.planner.residual_attempt_count = int(mpr_state.get("residual_attempt_count", 0))
+        self.planner.mppi_call_count = int(mpr_state.get("mppi_call_count", 0))
+        self.planner.baseline_selected_count = int(mpr_state.get("baseline_selected_count", 0))
+
     def load(self, filepath, *, load_optimizer: bool = False) -> None:
         state = torch.load(filepath, map_location=self.device, weights_only=False)
+        if isinstance(state, dict) and state.get("format") == "mpr_mpc_milestone_v1":
+            components = [
+                name for name, enabled in state.get("components", {}).items() if enabled
+            ]
+            self.load_milestone(
+                filepath,
+                components=components,
+                load_optimizer=load_optimizer,
+            )
+            return
         if not isinstance(state, dict) or state.get("format") != "mpr_mpc_v2_residual_sac":
             raise ValueError(
                 "Refusing to resume an incompatible MPR-MPC checkpoint. Start from scratch with "
@@ -428,15 +572,7 @@ class MPRMPCAgent:
         self.global_env_step = int(state.get("global_env_step", 0))
         best_key = state.get("best_eval_key")
         self.best_eval_key = tuple(best_key) if best_key is not None else None
-        self._tdmpc_frozen = bool(mpr_state.get("tdmpc_frozen", False))
-        if self._tdmpc_frozen:
-            self.tdmpc_agent.model.eval()
-            for parameter in self.tdmpc_agent.model.parameters():
-                parameter.requires_grad_(False)
-        self.planner.residual_invalid_count = int(mpr_state.get("residual_invalid_count", 0))
-        self.planner.residual_attempt_count = int(mpr_state.get("residual_attempt_count", 0))
-        self.planner.mppi_call_count = int(mpr_state.get("mppi_call_count", 0))
-        self.planner.baseline_selected_count = int(mpr_state.get("baseline_selected_count", 0))
+        self._load_planner_counters(mpr_state)
 
     def eval(self):
         self.tdmpc_agent.eval()
