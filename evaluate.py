@@ -66,7 +66,12 @@ def _scenarios(cfg) -> np.ndarray:
 
 
 def _render(env, result, episode: int, scenario: int, step: int) -> None:
-    text = {"episode": episode, "scenario": scenario, "step": step}
+    text = {
+        "episode": episode,
+        "scenario": scenario,
+        "step": step,
+        "paths": "yellow=Lattice red=Residual cyan=MPPI final",
+    }
     if result is not None:
         text.update(
             {

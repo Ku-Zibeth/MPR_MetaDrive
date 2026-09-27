@@ -10,10 +10,9 @@ from lattice.frenet_metadrive import FRENET_DEFAULT_CONFIG, FrenetPath, MetaDriv
 from mpr_mpc.planning.coordinator import MPRMPCPlanner
 from mpr_mpc.planning.kinematic_filter import BatchedKinematicCorridor, CorridorContext
 from mpr_mpc.planning.local_mppi import LocalMPPI
-from mpr_mpc.planning.residual_prior import ResidualTrajectoryPrior
-from mpr_mpc.planning.residual_training import ResidualTargetGenerator
 from mpr_mpc.planning.time_alignment import align_frenet_path
 from mpr_mpc.planning.trajectory_adapter import LatticeActionAdapter
+from mpr_mpc.residual_rl import ResidualReplayBuffer, ResidualSACAgent, ResidualStateBuilder
 
 
 def make_path(horizon=2.0, dt=0.1, target_d=0.2, target_speed=10.0):
@@ -97,13 +96,12 @@ class MPRMPCUnitTests(unittest.TestCase):
         aligned = align_frenet_path(make_path(dt=0.1), required_steps=6, control_dt=0.2)
         np.testing.assert_allclose(aligned.times, np.arange(6) * 0.2)
 
-    def test_1_residual_output_is_two_dimensional_and_bounded(self):
-        prior = ResidualTrajectoryPrior(518)
-        bounds = torch.tensor([[3.5, 5.0], [4.0, 2.0], [3.0, 0.0], [3.5, 6.0]])
-        residual, info = prior(torch.zeros((4, 518)), delta_bounds=bounds, deterministic=True)
-        self.assertEqual(residual.shape, (4, 2))
-        self.assertEqual(info["log_std"].shape, (4, 2))
-        self.assertTrue(torch.all(residual.abs() <= bounds + 1e-6))
+    def test_1_residual_sac_action_is_two_dimensional_and_normalized(self):
+        agent = ResidualSACAgent(518, {"hidden_dims": [16], "lr": 1e-3}, device="cpu")
+        output = agent.select_action(torch.zeros((4, 518)), deterministic=True)
+        self.assertEqual(output.action.shape, (4, 2))
+        self.assertEqual(output.log_std.shape, (4, 2))
+        self.assertTrue(torch.all(output.action.abs() <= 1.0 + 1e-6))
 
     def test_2_residual_never_changes_horizon(self):
         fake = SimpleNamespace(clamp_parameters=lambda values: np.asarray(values).copy())
@@ -156,28 +154,29 @@ class MPRMPCUnitTests(unittest.TestCase):
         second = planner.plan(torch.zeros((1, 2)), baseline, eval_mode=True).action
         torch.testing.assert_close(first, second)
 
-    def test_8_residual_improvement_gate_returns_zero(self):
-        coarse = make_path()
-        structured = SimpleNamespace(regenerate=lambda params: (make_path(target_d=params[0], target_speed=params[1]), ""))
-        adapter = SimpleNamespace(paths_to_actions=lambda paths, *args, **kwargs: torch.zeros((len(paths), 4, 2)))
-        evaluator = SimpleNamespace(
-            evaluate_trajectory_consequence=lambda z, actions: SimpleNamespace(
-                total_value=torch.linspace(0.0, 0.5, len(actions))
-            )
+    def test_8_residual_state_builder_uses_latent_path_return_and_feasibility(self):
+        builder = ResidualStateBuilder(
+            {"include_wm_cost_in_state": False, "wm_return_scale": 50.0},
+            latent_dim=4,
+            device="cpu",
         )
-        generator = ResidualTargetGenerator(
-            structured, adapter, evaluator, horizon=3, control_dt=0.1,
-            sample_count=8, elite_count=4, min_improvement_abs=1.0,
+        state = builder.build(
+            latent=torch.ones((1, 4)),
+            coarse_path=make_path(),
+            consequence=SimpleNamespace(total_value=torch.tensor([25.0])),
+            feasible_ratio=0.5,
+            used_fallback=True,
         )
-        context = SimpleNamespace(
-            selection=SimpleNamespace(coarse_path=coarse),
-            residual_bounds=torch.tensor([[3.5, 5.0]]),
-            latent=torch.zeros((1, 2)),
-            coarse_consequence=SimpleNamespace(total_value=torch.tensor([0.0])),
-        )
-        target, metrics = generator.generate(context, FakeVehicle())
-        torch.testing.assert_close(target, torch.zeros(2))
-        self.assertEqual(metrics["target_gate_passed"], 0.0)
+        self.assertEqual(state.shape, (builder.state_dim,))
+        self.assertTrue(torch.isfinite(state).all())
+        torch.testing.assert_close(state[-2:], torch.tensor([0.5, 1.0]))
+
+    def test_8b_residual_replay_stores_terminal_without_bootstrap(self):
+        replay = ResidualReplayBuffer(8, state_dim=3, action_dim=2)
+        replay.add([1, 2, 3], [0.1, -0.2], 1.0, 0.5, [9, 9, 9], True)
+        batch = replay.sample(1, device="cpu", gamma=0.99)
+        self.assertEqual(float(batch["done"][0, 0]), 1.0)
+        torch.testing.assert_close(batch["discount"], torch.full((1, 1), 0.99))
 
     def test_9_mppi_improvement_gate_falls_back_to_baseline(self):
         planner = LocalMPPI(
@@ -205,16 +204,21 @@ class MPRMPCUnitTests(unittest.TestCase):
         self.assertTrue(bool(result.valid[0]))
         self.assertFalse(bool(result.valid[1]))
 
-    def test_11_regularization_alone_has_nonzero_gradient(self):
-        prior = ResidualTrajectoryPrior(8, hidden_dims=(16,))
-        with torch.no_grad():
-            prior.network[-1].bias[:2].fill_(0.3)
-        inputs = torch.randn((6, 8))
-        bounds = torch.tensor([3.5, 5.0]).expand(6, -1)
-        _, info = prior.supervised_loss(inputs, torch.zeros((6, 2)), delta_bounds=bounds)
-        info["regularization_loss"].backward()
-        gradients = [p.grad for p in prior.parameters() if p.grad is not None]
-        self.assertTrue(any(float(g.abs().sum()) > 0.0 for g in gradients))
+    def test_11_residual_sac_update_trains_reward_and_cost_critics(self):
+        agent = ResidualSACAgent(8, {"hidden_dims": [16], "lr": 1e-3}, device="cpu")
+        batch = {
+            "state": torch.randn((6, 8)),
+            "action": torch.randn((6, 2)).clamp(-1.0, 1.0),
+            "reward": torch.randn((6, 1)),
+            "cost": torch.rand((6, 1)),
+            "next_state": torch.randn((6, 8)),
+            "done": torch.zeros((6, 1)),
+            "discount": torch.full((6, 1), 0.99),
+        }
+        info = agent.update(batch)
+        self.assertIn("loss/critic", info)
+        self.assertIn("loss/cost_critic", info)
+        self.assertEqual(agent.update_steps, 1)
 
     def test_12_stage_switches_at_global_steps(self):
         fake = SimpleNamespace(
@@ -320,6 +324,26 @@ class MPRMPCUnitTests(unittest.TestCase):
         result = corridor.check(candidates, baseline, context)
         torch.testing.assert_close(result.lateral[0], result.lateral[1])
         self.assertEqual(result.lateral.shape, (2, 3))
+
+    def test_f_selected_mppi_visualization_ignores_terminal_q_action(self):
+        corridor = BatchedKinematicCorridor({}, control_dt=0.1, device="cpu")
+        planner = SimpleNamespace(
+            horizon=3,
+            control_dt=0.1,
+            local_mppi=SimpleNamespace(corridor=corridor),
+        )
+        baseline = torch.zeros((4, 2))
+        selected = baseline.clone()
+        selected[-1] = torch.tensor([1.0, 1.0])
+        context = CorridorContext(
+            torch.zeros(3), 3.5, -10.0, 10.0, 5.0, 1.8, 2.5, 0.7
+        )
+        path = make_path(target_speed=5.0)
+        final_xy = MPRMPCPlanner._selected_sequence_xy(
+            planner, path, baseline, selected, context
+        )
+        aligned = align_frenet_path(path, required_steps=4, control_dt=0.1)
+        np.testing.assert_allclose(final_xy, aligned.positions)
 
 
 if __name__ == "__main__":

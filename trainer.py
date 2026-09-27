@@ -154,10 +154,10 @@ class MPROnlineTrainer(OnlineTrainer):
                 global_step=self._step,
             )
             observation, reward, done, info = self.env.step(action)
-            cost = torch.tensor(
-                float(info.get("cost", info.get("risk_field_cost", 0.0))),
-                dtype=torch.float32,
-            )
+            env_cost = float(info.get("cost", info.get("risk_field_cost", 0.0)))
+            cost = torch.tensor(env_cost, dtype=torch.float32)
+            if hasattr(self.agent, "observe_transition"):
+                self.agent.observe_transition(float(reward), env_cost, bool(done), info)
             self._tds.append(self.to_td(observation, action, reward, info["terminated"], cost))
 
             # Once a complete batch can be formed, exactly one online update per env step.

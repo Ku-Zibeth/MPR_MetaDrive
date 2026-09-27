@@ -52,7 +52,7 @@ def main(raw_cfg: DictConfig) -> None:
     if raw_cfg.get("checkpoint") is not None:
         raise ValueError(
             "mpr_mpc checkpoint must remain null for a fresh run. Use "
-            "resume_checkpoint only for an mpr_mpc_v1 training checkpoint."
+            "resume_checkpoint only for an mpr_mpc_v2_residual_sac training checkpoint."
         )
     cfg = parse_cfg(raw_cfg)
     set_seed(int(cfg.seed))

@@ -61,7 +61,7 @@ class MPRPlanContext:
     wm_features: torch.Tensor | None
     coarse_parameters: torch.Tensor
     residual_bounds: torch.Tensor
-    residual_input: torch.Tensor | None
+    residual_state: torch.Tensor | None
 
 
 @dataclass
@@ -71,11 +71,14 @@ class MPRPlanResult:
     refined_path: Any
     coarse_actions: torch.Tensor
     refined_actions: torch.Tensor
+    requested_normalized_residual: torch.Tensor
+    requested_physical_residual: torch.Tensor
     residual: torch.Tensor
     residual_mean: torch.Tensor
     residual_log_std: torch.Tensor
     residual_valid: bool
     fallback_reason: str
+    residual_warmup: bool
     coarse_consequence: TrajectoryConsequence | None
     stage: PlanningStage
     metrics: dict[str, float] = field(default_factory=dict)
