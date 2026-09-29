@@ -1,0 +1,49 @@
+{
+  "os": "Linux-5.15.0-119-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.16",
+  "startedAt": "2026-09-28T21:33:16.357459Z",
+  "args": [
+    "checkpoint=null",
+    "resume_checkpoint=null",
+    "exp_name=mpr_mpc_5090_seed1",
+    "wandb_run_name=mpr_mpc_5090_seed1",
+    "wandb_project=mpr_mpc_metadrive",
+    "enable_wandb=true",
+    "seed=1"
+  ],
+  "program": "/root/autodl-tmp/MPR_MetaDrive/train.py",
+  "codePath": "train.py",
+  "codePathLocal": "train.py",
+  "git": {
+    "remote": "https://github.com/Ku-Zibeth/MPR_MetaDrive.git",
+    "commit": "d86cd11fbf4be6806e597fe05b818ebabff5e58c"
+  },
+  "email": "shihuangggggg@gmail.com",
+  "root": "/root/autodl-tmp/MPR_MetaDrive/logs/metadrive-risk/1/mpr_mpc_5090_seed1",
+  "host": "autodl-container-dbff4c9a2f-fda04e29",
+  "executable": "/root/autodl-tmp/conda_envs/tdmpc2/bin/python",
+  "cpu_count": 104,
+  "cpu_count_logical": 208,
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "32212254720",
+      "used": "9829462016"
+    }
+  },
+  "memory": {
+    "total": "810154803200"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 5090",
+      "memoryTotal": "34190917632",
+      "cudaCores": 21760,
+      "architecture": "Blackwell",
+      "uuid": "GPU-a1bfff0e-b386-36bb-57d6-94e280c4812a"
+    }
+  ],
+  "cudaVersion": "13.0",
+  "writerId": "qtjtabwzfrg0gomxeqsbegjcx65ka6kz"
+}

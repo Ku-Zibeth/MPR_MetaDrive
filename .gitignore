@@ -19,7 +19,6 @@ conda-env/
 
 # Logs
 *.log
-logs/
 wandb/
 checkpoints/
 videos/

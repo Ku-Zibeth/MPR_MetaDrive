@@ -1,0 +1,457 @@
+_wandb:
+    value:
+        cli_version: 0.30.0
+        e:
+            68fc6j5u2hhtb9kdw1q1udvixc94ya92:
+                args:
+                    - checkpoint=null
+                    - resume_checkpoint=null
+                    - exp_name=mpr_mpc_5090_seed1
+                    - wandb_run_name=mpr_mpc_5090_seed1
+                    - wandb_project=mpr_mpc_metadrive
+                    - enable_wandb=true
+                    - seed=1
+                codePath: train.py
+                codePathLocal: train.py
+                cpu_count: 104
+                cpu_count_logical: 208
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "32212254720"
+                        used: "5059149824"
+                email: shihuangggggg@gmail.com
+                executable: /root/autodl-tmp/conda_envs/tdmpc2/bin/python
+                git:
+                    commit: d86cd11fbf4be6806e597fe05b818ebabff5e58c
+                    remote: https://github.com/Ku-Zibeth/MPR_MetaDrive.git
+                gpu: NVIDIA GeForce RTX 5090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Blackwell
+                      cudaCores: 21760
+                      memoryTotal: "34190917632"
+                      name: NVIDIA GeForce RTX 5090
+                      uuid: GPU-a1bfff0e-b386-36bb-57d6-94e280c4812a
+                host: autodl-container-dbff4c9a2f-fda04e29
+                memory:
+                    total: "810154803200"
+                os: Linux-5.15.0-119-generic-x86_64-with-glibc2.35
+                program: /root/autodl-tmp/MPR_MetaDrive/train.py
+                python: CPython 3.11.16
+                root: /root/autodl-tmp/MPR_MetaDrive/logs/metadrive-risk/1/mpr_mpc_5090_seed1
+                startedAt: "2026-09-27T13:17:18.133766Z"
+                writerId: 68fc6j5u2hhtb9kdw1q1udvixc94ya92
+        m: []
+        python_version: 3.11.16
+        t:
+            "1":
+                - 1
+                - 50
+                - 105
+            "2":
+                - 1
+                - 50
+                - 105
+            "3":
+                - 13
+                - 15
+                - 16
+                - 61
+            "4": 3.11.16
+            "5": 0.30.0
+            "12": 0.30.0
+            "13": linux-x86_64
+action_dim:
+    value: 2
+action_dims:
+    value: null
+algorithm_version:
+    value: mpr_mpc_residual_sac_mppi_v2
+batch_size:
+    value: 256
+bin_size:
+    value: 0.2
+buffer_size:
+    value: 1000000
+checkpoint:
+    value: null
+checkpoint_freq:
+    value: 50000
+compile:
+    value: false
+consistency_coef:
+    value: 20
+cost:
+    value:
+        enabled: false
+        gamma: 0.99
+        loss_coef: 1
+        num_q: 2
+        q_enabled: false
+        q_loss_coef: 1
+data_dir:
+    value: null
+discount_denom:
+    value: 5
+discount_max:
+    value: 0.995
+discount_min:
+    value: 0.95
+dropout:
+    value: 0.01
+enable_wandb:
+    value: true
+enc_dim:
+    value: 256
+enc_lr_scale:
+    value: 0.3
+entropy_coef:
+    value: 0.0001
+episode_length:
+    value: 1000
+episode_lengths:
+    value: null
+episodic:
+    value: true
+eval_episodes:
+    value: 20
+eval_freq:
+    value: 50000
+evaluation_stack:
+    value: checkpoint
+exp_name:
+    value: mpr_mpc_5090_seed1
+flow:
+    value:
+        enabled: false
+grad_clip_norm:
+    value: 20
+horizon:
+    value: 10
+iterations:
+    value: 6
+latent_dim:
+    value: 512
+lattice:
+    value:
+        frenet_dt: 0.1
+        frenet_filter_off_lane_paths: true
+        frenet_lateral_sample_count: 5
+        frenet_obstacle_check: true
+        frenet_show_in_window: true
+        frenet_speed_offsets:
+            - 0
+            - -4
+            - -8
+        frenet_target_speed: 13.89
+        frenet_time_horizon: 3
+        frenet_time_horizons:
+            - 2
+            - 3
+log_root:
+    value: /root/autodl-tmp/MPR_MetaDrive/logs
+log_std_max:
+    value: 2
+log_std_min:
+    value: -10
+lr:
+    value: 0.0003
+max_std:
+    value: 2
+metadrive:
+    value:
+        cost:
+            enabled: true
+            event_weights:
+                cost: 1
+                crash: 1
+                crash_object: 1
+                crash_vehicle: 1
+                out_of_road: 1
+                out_of_road_warning: 1
+            risk_field_weight: 1
+        reward:
+            base_reward_weight: 1
+            reward_max: 10
+            reward_min: -10
+            risk_field_reward_scale: 25
+        risk_field:
+            risk_field_boundary_line_factor: 1
+            risk_field_boundary_sigma: 0.75
+            risk_field_boundary_weight: 2
+            risk_field_broken_line_factor: 0.1
+            risk_field_broken_line_sigma: 0.1
+            risk_field_headway_cost_clip: 1
+            risk_field_headway_time_threshold: 1.2
+            risk_field_headway_weight: 0
+            risk_field_lane_beta: 2
+            risk_field_lane_core_sigma_scale: 2.2
+            risk_field_lane_edge_sigma: 0.75
+            risk_field_lane_shoulder_sigma_scale: 1.5
+            risk_field_lane_shoulder_weight: 0.9
+            risk_field_lane_weight: 0.1
+            risk_field_max_distance: 50
+            risk_field_min_speed: 0.5
+            risk_field_object_beta: 2
+            risk_field_object_lateral_sigma: 2
+            risk_field_object_longitudinal_sigma: 5.5
+            risk_field_object_weight: 1
+            risk_field_offroad_cost: 1
+            risk_field_offroad_sigma: 1
+            risk_field_offroad_weight: 2
+            risk_field_on_lane_margin: 0.05
+            risk_field_oncoming_line_factor: 1.5
+            risk_field_raw_clip: 10
+            risk_field_solid_line_factor: 1
+            risk_field_ttc_cost_clip: 1
+            risk_field_ttc_threshold: 3
+            risk_field_ttc_weight: 0
+            risk_field_vehicle_beta: 2
+            risk_field_vehicle_dynamic_alpha: 0.35
+            risk_field_vehicle_dynamic_sigma_scale: 1.2
+            risk_field_vehicle_lateral_sigma: 2
+            risk_field_vehicle_longitudinal_sigma: 6.8
+            risk_field_vehicle_min_dynamic_sigma: 0.5
+            risk_field_vehicle_weight: 2
+        simulator:
+            accident_prob: 0.8
+            action_check: false
+            cost_to_reward: false
+            crash_object_cost: 1
+            crash_object_done: false
+            crash_object_penalty: 1
+            crash_vehicle_cost: 1
+            crash_vehicle_done: false
+            crash_vehicle_penalty: 1
+            decision_repeat: 5
+            disable_idm_deceleration: false
+            discrete_action: false
+            driving_reward: 1
+            enable_idm_lane_change: true
+            horizon: 1000
+            image_observation: false
+            log_level: 50
+            manual_control: false
+            map: 3
+            num_scenarios: 50
+            out_of_road_cost: 1
+            out_of_road_done: true
+            out_of_road_mode: legacy
+            out_of_road_penalty: 8
+            out_of_road_recovery_steps: 15
+            out_of_road_terminate_after_budget: true
+            out_of_road_warning_cost: 1
+            out_of_road_warning_limit: 5
+            out_of_road_warning_penalty: 1
+            physics_world_step_size: 0.02
+            random_traffic: false
+            remove_crashed_traffic_vehicle: false
+            risk_field_reward_scale: 25
+            speed_reward: 0.12
+            start_seed: 100
+            success_reward: 10
+            traffic_density: 0.1
+            truncate_as_terminate: false
+            use_render: false
+            use_risk_field_reward: true
+            vehicle_config:
+                lidar:
+                    add_others_navi: false
+                    distance: 50
+                    dropout_prob: 0
+                    gaussian_noise: 0
+                    num_lasers: 240
+                    num_others: 0
+milestone_checkpoints:
+    value:
+        enabled: true
+        full_model_step: 1000000
+        save_full_model: true
+        save_world_model: true
+        save_world_model_residual: true
+        world_model_residual_step: 50000
+        world_model_step: 20000
+min_std:
+    value: 0.05
+mlp_dim:
+    value: 512
+model_size:
+    value: 5
+mpc:
+    value: true
+mpr_mpc:
+    value:
+        debug:
+            enabled: false
+            every: 100
+        enabled: true
+        mppi:
+            blend_alpha: 0.8
+            deviation_coef: 5
+            eval_seed: 0
+            initial_std:
+                - 0.025
+                - 0.1
+            iterations: 4
+            kinematic_max_acceleration: 4
+            kinematic_max_deceleration: 6
+            kinematic_max_steering_angle: 0.6981317
+            kinematic_vehicle_width: 1.852
+            kinematic_wheelbase: 2.46894
+            lateral_corridor_ratio: 0.5
+            lateral_safety_margin: 0.15
+            max_delta:
+                - 0.05
+                - 0.2
+            max_std:
+                - 0.05
+                - 0.2
+            min_improvement_abs: 1
+            min_improvement_ratio: 0.01
+            min_std:
+                - 0.005
+                - 0.02
+            num_elites: 8
+            num_samples: 64
+            proposal_init: structured_baseline
+            smoothness_coef: 1
+            temperature: 0.5
+            throttle_deviation_weight: 0.25
+            uncertainty_coef: 0
+        refinement:
+            max_horizon: 3.5
+            max_speed: 20
+            min_horizon: 1.5
+            min_speed: 0.5
+        stages:
+            mppi_start_step: 50000
+            residual_start_step: 20000
+        use_mppi: true
+        use_residual: true
+multitask:
+    value: false
+num_bins:
+    value: 101
+num_channels:
+    value: 32
+num_elites:
+    value: 64
+num_enc_layers:
+    value: 2
+num_pi_trajs:
+    value: 24
+num_q:
+    value: 5
+num_samples:
+    value: 512
+obs:
+    value: state
+obs_shape:
+    value:
+        state:
+            - 259
+obs_shapes:
+    value: null
+planner:
+    value:
+        final_cost_lambda: 0
+        num_candidates: 64
+        type: mpr_mpc
+residual_rl:
+    value:
+        actor_lr: 0.0005
+        alpha: 0.005
+        alpha_lr: 0.0003
+        auto_alpha: true
+        batch_size: 256
+        buffer_size: 200000
+        cost_limit: 5
+        critic_lr: 0.001
+        enabled: true
+        freeze_tdmpc2_on_start: false
+        gamma: 0.99
+        hidden_dims:
+            - 256
+            - 256
+        include_wm_cost_in_state: false
+        invalid_residual_penalty: 0.2
+        lagrangian_initial: 0
+        lagrangian_lr: 0.01
+        lagrangian_rescaling: true
+        learning_starts: 5000
+        log_std_max: 2
+        log_std_min: -20
+        lr: 0.0003
+        path_feature_clip: 5
+        residual_stats_window: 1000
+        seed_steps: 5000
+        target_entropy: -2
+        tau: 0.05
+        update_per_step: 0.2
+        use_lagrangian: true
+        warmup_action_scale: 0.5
+        wm_cost_scale: 10
+        wm_return_scale: 50
+        zero_like_action_threshold: 0.05
+resume_checkpoint:
+    value: null
+resume_replay_warmup:
+    value: true
+reward_coef:
+    value: 0.1
+rho:
+    value: 0.5
+save_agent:
+    value: true
+save_csv:
+    value: true
+save_video:
+    value: false
+seed:
+    value: 1
+seed_steps:
+    value: 0
+self_improve:
+    value:
+        enabled: false
+simnorm_dim:
+    value: 8
+steps:
+    value: 1000000
+task:
+    value: metadrive-risk
+task_dim:
+    value: 0
+task_title:
+    value: Metadrive Risk
+tasks:
+    value:
+        - metadrive-risk
+tau:
+    value: 0.01
+tdmpc_stage_training:
+    value:
+        stage_a_update_ratio: 1
+        stage_b_update_ratio: 1
+        stage_c_update_ratio: 0.25
+temperature:
+    value: 0.5
+termination_coef:
+    value: 1
+value_coef:
+    value: 0.1
+vmax:
+    value: 10
+vmin:
+    value: -10
+wandb_entity:
+    value: null
+wandb_project:
+    value: mpr_mpc_metadrive
+wandb_run_name:
+    value: mpr_mpc_5090_seed1
+wandb_silent:
+    value: false
+work_dir:
+    value: /root/autodl-tmp/MPR_MetaDrive/logs/metadrive-risk/1/mpr_mpc_5090_seed1
