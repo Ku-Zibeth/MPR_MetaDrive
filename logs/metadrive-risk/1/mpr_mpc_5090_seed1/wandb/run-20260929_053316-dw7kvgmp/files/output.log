@@ -773,3 +773,24 @@ wandb: WARNING Artifact "metadrive-risk-mpr-mpc-5090-seed1-1-latest" already exi
  train            E: 714                   I: 258,258               R: 75.6                  S: 0.0                   Reason: out_of_road      T: 8:29:12
  train            E: 715                   I: 258,626               R: 322.5                 S: 1.0                   Reason: arrive_dest      T: 8:29:52
  train            E: 716                   I: 258,971               R: 94.9                  S: 1.0                   Reason: arrive_dest      T: 8:30:28
+ train            E: 717                   I: 259,373               R: 357.6                 S: 1.0                   Reason: arrive_dest      T: 8:31:10
+ train            E: 718                   I: 259,876               R: 376.1                 S: 1.0                   Reason: arrive_dest      T: 8:32:01
+ train            E: 719                   I: 260,115               R: 148.5                 S: 0.0                   Reason: out_of_road      T: 8:32:27
+ train            E: 720                   I: 260,659               R: 451.6                 S: 1.0                   Reason: arrive_dest      T: 8:33:25
+ train            E: 721                   I: 260,952               R: 316.3                 S: 1.0                   Reason: arrive_dest      T: 8:33:55
+ train            E: 722                   I: 261,123               R: 171.4                 S: 0.0                   Reason: out_of_road      T: 8:34:12
+ train            E: 723                   I: 261,673               R: 412.6                 S: 1.0                   Reason: arrive_dest      T: 8:35:10
+ train            E: 724                   I: 261,952               R: 249.0                 S: 1.0                   Reason: arrive_dest      T: 8:35:42
+ train            E: 725                   I: 262,287               R: 287.1                 S: 1.0                   Reason: arrive_dest      T: 8:36:16
+ train            E: 726                   I: 262,524               R: 209.5                 S: 0.0                   Reason: out_of_road      T: 8:36:40
+ train            E: 727                   I: 262,823               R: 262.0                 S: 1.0                   Reason: arrive_dest      T: 8:37:11
+ train            E: 728                   I: 263,202               R: 342.7                 S: 1.0                   Reason: arrive_dest      T: 8:37:50
+ train            E: 729                   I: 263,442               R: 193.2                 S: 0.0                   Reason: out_of_road      T: 8:38:17
+ train            E: 730                   I: 263,722               R: 249.9                 S: 1.0                   Reason: arrive_dest      T: 8:38:47
+ train            E: 731                   I: 264,017               R: 209.7                 S: 1.0                   Reason: arrive_dest      T: 8:39:18
+ train            E: 732                   I: 264,310               R: 260.7                 S: 1.0                   Reason: arrive_dest      T: 8:39:49
+ train            E: 733                   I: 264,740               R: 244.2                 S: 1.0                   Reason: arrive_dest      T: 8:40:34
+ train            E: 734                   I: 265,059               R: 329.9                 S: 1.0                   Reason: arrive_dest      T: 8:41:08
+ train            E: 735                   I: 265,349               R: 315.6                 S: 1.0                   Reason: arrive_dest      T: 8:41:37
+ train            E: 736                   I: 265,652               R: 176.6                 S: 1.0                   Reason: arrive_dest      T: 8:42:07
+ train            E: 737                   I: 265,871               R: 168.6                 S: 0.0                   Reason:

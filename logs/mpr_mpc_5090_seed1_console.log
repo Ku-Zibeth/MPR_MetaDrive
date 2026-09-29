@@ -777,3 +777,54 @@ wandb: WARNING Artifact "metadrive-risk-mpr-mpc-5090-seed1-1-latest" already exi
  train            E: 676                   I: 245,351               R: 319.7                 S: 1.0                   Reason: arrive_dest      T: 7:58:40            
  train            E: 677                   I: 245,516               R: 159.1                 S: 0.0                   Reason: out_of_road      T: 7:58:57            wandb: WARNING Artifact "metadrive-risk-mpr-mpc-5090-seed1-1-latest" already exists with the same content. No new version will be created.
 wandb: WARNING Artifact "metadrive-risk-mpr-mpc-5090-seed1-1-latest" already exists with the same content. No new version will be created.
+
+ train            E: 678                   I: 245,812               R: 297.1                 S: 1.0                   Reason: arrive_dest      T: 7:59:28            
+ train            E: 679                   I: 246,265               R: 307.5                 S: 1.0                   Reason: arrive_dest      T: 8:00:16            
+ train            E: 680                   I: 246,564               R: 120.5                 S: 1.0                   Reason: arrive_dest      T: 8:00:46            
+ train            E: 681                   I: 246,891               R: 297.0                 S: 0.0                   Reason: out_of_road      T: 8:01:19            
+ train            E: 682                   I: 247,180               R: 263.7                 S: 1.0                   Reason: arrive_dest      T: 8:01:49            
+ train            E: 683                   I: 247,466               R: 223.7                 S: 0.0                   Reason: out_of_road      T: 8:02:18            
+ train            E: 684                   I: 247,778               R: 344.0                 S: 1.0                   Reason: arrive_dest      T: 8:02:51            
+ train            E: 685                   I: 248,128               R: 295.6                 S: 1.0                   Reason: arrive_dest      T: 8:03:29            
+ train            E: 686                   I: 248,313               R: 160.0                 S: 0.0                   Reason: out_of_road      T: 8:03:48            
+ train            E: 687                   I: 248,692               R: 341.2                 S: 1.0                   Reason: arrive_dest      T: 8:04:28            
+ train            E: 688                   I: 249,171               R: 367.4                 S: 1.0                   Reason: arrive_dest      T: 8:05:19            
+ train            E: 689                   I: 249,699               R: 367.4                 S: 1.0                   Reason: arrive_dest      T: 8:06:17            
+ eval             E: 689                   I: 250,149               R: 232.6                 T: 8:14:51            
+ train            E: 690                   I: 250,149               R: 368.8                 S: 1.0                   Reason: arrive_dest      T: 8:15:02            
+ train            E: 691                   I: 250,469               R: 271.6                 S: 1.0                   Reason: arrive_dest      T: 8:15:35            
+ train            E: 692                   I: 250,753               R: 254.2                 S: 1.0                   Reason: arrive_dest      T: 8:16:05            
+ train            E: 693                   I: 250,945               R: 152.2                 S: 0.0                   Reason: out_of_road      T: 8:16:25            
+ train            E: 694                   I: 251,271               R: 235.6                 S: 1.0                   Reason: arrive_dest      T: 8:16:58            
+ train            E: 695                   I: 251,632               R: 309.6                 S: 1.0                   Reason: arrive_dest      T: 8:17:35            
+ train            E: 696                   I: 252,074               R: 388.8                 S: 1.0                   Reason: arrive_dest      T: 8:18:21            
+ train            E: 697                   I: 252,258               R: 141.4                 S: 0.0                   Reason: out_of_road      T: 8:18:40            
+ train            E: 698                   I: 252,724               R: 368.1                 S: 1.0                   Reason: arrive_dest      T: 8:19:28            
+ train            E: 699                   I: 253,150               R: 351.9                 S: 0.0                   Reason: out_of_road      T: 8:20:15            
+ train            E: 700                   I: 253,715               R: 420.5                 S: 1.0                   Reason: arrive_dest      T: 8:21:14            
+ train            E: 701                   I: 254,019               R: 303.6                 S: 1.0                   Reason: arrive_dest      T: 8:21:45            
+ train            E: 702                   I: 254,195               R: 151.5                 S: 0.0                   Reason: out_of_road      T: 8:22:03            
+ train            E: 703                   I: 254,479               R: 182.6                 S: 0.0                   Reason: out_of_road      T: 8:22:34            
+ train            E: 704                   I: 254,687               R: 137.1                 S: 0.0                   Reason: out_of_road      T: 8:22:56            
+ train            E: 705                   I: 255,158               R: 382.8                 S: 1.0                   Reason: arrive_dest      T: 8:23:46            
+ train            E: 706                   I: 255,484               R: 291.6                 S: 0.0                   Reason: out_of_road      T: 8:24:19            
+ train            E: 707                   I: 255,705               R: 163.2                 S: 0.0                   Reason: out_of_road      T: 8:24:43            
+ train            E: 708                   I: 256,009               R: 315.7                 S: 1.0                   Reason: arrive_dest      T: 8:25:15            
+ train            E: 709                   I: 256,502               R: 305.9                 S: 1.0                   Reason: arrive_dest      T: 8:26:08            
+ train            E: 710                   I: 256,889               R: 342.6                 S: 1.0                   Reason: arrive_dest      T: 8:26:49            
+ train            E: 711                   I: 257,495               R: 466.1                 S: 1.0                   Reason: arrive_dest      T: 8:27:55            
+ train            E: 712                   I: 257,809               R: 245.4                 S: 1.0                   Reason: arrive_dest      T: 8:28:26            
+ train            E: 713                   I: 258,162               R: 306.2                 S: 1.0                   Reason: arrive_dest      T: 8:29:03            
+ train            E: 714                   I: 258,258               R: 75.6                  S: 0.0                   Reason: out_of_road      T: 8:29:12            
+ train            E: 715                   I: 258,626               R: 322.5                 S: 1.0                   Reason: arrive_dest      T: 8:29:52            
+ train            E: 716                   I: 258,971               R: 94.9                  S: 1.0                   Reason: arrive_dest      T: 8:30:28            
+ train            E: 717                   I: 259,373               R: 357.6                 S: 1.0                   Reason: arrive_dest      T: 8:31:10            
+ train            E: 718                   I: 259,876               R: 376.1                 S: 1.0                   Reason: arrive_dest      T: 8:32:01            
+ train            E: 719                   I: 260,115               R: 148.5                 S: 0.0                   Reason: out_of_road      T: 8:32:27            
+ train            E: 720                   I: 260,659               R: 451.6                 S: 1.0                   Reason: arrive_dest      T: 8:33:25            
+ train            E: 721                   I: 260,952               R: 316.3                 S: 1.0                   Reason: arrive_dest      T: 8:33:55            
+ train            E: 722                   I: 261,123               R: 171.4                 S: 0.0                   Reason: out_of_road      T: 8:34:12            
+ train            E: 723                   I: 261,673               R: 412.6                 S: 1.0                   Reason: arrive_dest      T: 8:35:10            
+ train            E: 724                   I: 261,952               R: 249.0                 S: 1.0                   Reason: arrive_dest      T: 8:35:42            
+ train            E: 725                   I: 262,287               R: 287.1                 S: 1.0                   Reason: arrive_dest      T: 8:36:16            
+ train            E: 726                   I: 262,524               R: 209.5                 S: 0.0                   Reason: out_of_road      T: 8:36:40            
