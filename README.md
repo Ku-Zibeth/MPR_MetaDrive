@@ -209,12 +209,68 @@ tdmpc_stage_training:
   stage_c_update_ratio: 0.25
 ```
 
-Residual action mapping:
+State encoder:
 
 ```text
-delta_d = u_d * lane_width
-delta_v = u_v * 0.5 * coarse_target_speed
+MetaDrive state observation: 259 = ego 9 + navigation 10 + LiDAR 240
+
+ego        obs[..., 0:9]     -> 128
+navigation obs[..., 9:19]    -> 128
+LiDAR      obs[..., 19:259]  -> 128
+
+concat 384 -> fusion MLP -> latent 512
 ```
+
+This grouped encoder is enabled by default:
+
+```yaml
+state_encoder:
+  grouped: true
+  ego_dim: 9
+  nav_dim: 10
+  lidar_dim: 240
+  group_embed_dim: 128
+```
+
+Set `state_encoder.grouped=false` to use the original single state MLP encoder.
+The TD-MPC2 latent interface remains `latent_dim: 512`.
+
+Residual action mapping:
+
+Default:
+
+```yaml
+residual_rl:
+  residual_mapping: latent_tanh
+  latent_tanh_scale: [1.0, 1.0]
+  latent_tanh_eps: 1.0e-6
+```
+
+Residual SAC still outputs normalized actions `r_d, r_v in [-1, 1]`. In
+`latent_tanh` mode those actions refine only the coarse Lattice `target_d` and
+`target_speed` in atanh-normalized parameter space:
+
+```text
+x_c = 2 * (p_c - p_min) / (p_max - p_min) - 1
+u_c = atanh(clamp(x_c, -1 + eps, 1 - eps))
+u_r = u_c + kappa * r
+p_r = p_min + 0.5 * (tanh(u_r) + 1) * (p_max - p_min)
+```
+
+For `target_d`, bounds come from the current Lattice lateral bounds. For
+`target_speed`, bounds are `mpr_mpc.refinement.min_speed` and
+`mpr_mpc.refinement.max_speed`. Horizon is not modified by Residual SAC.
+
+Set `residual_rl.residual_mapping=linear` to use the previous mapping:
+
+```text
+delta_d = r_d * lane_width
+delta_v = r_v * 0.5 * coarse_target_speed
+```
+
+The Residual SAC state remains `512 latent + 12 path features + 1 WM return + 2 feasibility = 527`.
+The SAC actor, critic losses, replay buffer action format, Lattice, and MPPI
+algorithm are unchanged.
 
 Local MPPI defaults:
 

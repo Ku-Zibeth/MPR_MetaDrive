@@ -57,6 +57,20 @@ class MPRMPCPlanner:
         self.residual_state_dim = self.residual_state_builder.state_dim
         self.residual_action_adapter = ResidualActionAdapter()
         self.residual_action_provider = None
+        self.residual_mapping = str(
+            self.residual_rl_cfg.get("residual_mapping", "linear")
+        ).lower()
+        if self.residual_mapping not in {"linear", "latent_tanh"}:
+            raise ValueError("residual_rl.residual_mapping must be 'linear' or 'latent_tanh'.")
+        scale = self.residual_rl_cfg.get("latent_tanh_scale", [1.0, 1.0])
+        if len(scale) != 2:
+            raise ValueError("residual_rl.latent_tanh_scale must contain two values.")
+        self.latent_tanh_scale = torch.tensor(
+            [float(scale[0]), float(scale[1])],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.latent_tanh_eps = float(self.residual_rl_cfg.get("latent_tanh_eps", 1e-6))
 
         refinement = mapping(self.mpr_cfg.get("refinement"))
         self.min_speed = float(refinement.get("min_speed", 0.5))
@@ -104,6 +118,7 @@ class MPRMPCPlanner:
             f"  latent={latent_dim} path_features={path_features} "
             f"wm_return={wm_return} feasibility={feasibility} wm_cost={wm_cost}\n"
             "Residual action dim: 2\n"
+            f"Residual mapping: {self.residual_mapping}\n"
             "Physical delta_d bound: dynamic lane width\n"
             "Physical delta_v bound: 0.5 * coarse speed\n\n"
             "Local MPPI:\n"
@@ -142,6 +157,16 @@ class MPRMPCPlanner:
         return torch.tensor(
             [[lane_width, 0.5 * target_speed]], dtype=torch.float32, device=self.device
         )
+
+    def residual_parameter_bounds(self) -> tuple[torch.Tensor, torch.Tensor]:
+        d_min, d_max = self.structured.planner.last_lateral_bounds
+        lower = torch.tensor(
+            [[float(d_min), self.min_speed]], dtype=torch.float32, device=self.device
+        )
+        upper = torch.tensor(
+            [[float(d_max), self.max_speed]], dtype=torch.float32, device=self.device
+        )
+        return lower, upper
 
     def apply_residual_parameters(self, coarse_parameters, residual) -> np.ndarray:
         coarse = np.asarray(coarse_parameters, dtype=np.float32)
@@ -311,6 +336,10 @@ class MPRMPCPlanner:
         stage = self.stage_for_step(global_step)
         coarse = context.selection.coarse_path
         residual_warmup = False
+        coarse_parameters = np.asarray(
+            [coarse.target_d, coarse.target_speed, coarse.horizon], dtype=np.float32
+        )
+        latent_refined_parameters = None
         if force_zero_residual or not stage.use_residual:
             normalized_residual = torch.zeros((1, 2), device=self.device)
             physical_residual = normalized_residual.clone()
@@ -328,10 +357,28 @@ class MPRMPCPlanner:
             normalized_residual = policy_output.action.to(self.device, dtype=torch.float32)
             if normalized_residual.ndim == 1:
                 normalized_residual = normalized_residual.unsqueeze(0)
-            physical_residual = self.residual_action_adapter.to_physical(
-                normalized_residual,
-                context.residual_bounds,
-            )
+            if self.residual_mapping == "linear":
+                physical_residual = self.residual_action_adapter.to_physical(
+                    normalized_residual,
+                    context.residual_bounds,
+                )
+            else:
+                lower_bounds, upper_bounds = self.residual_parameter_bounds()
+                coarse_dv = torch.as_tensor(
+                    coarse_parameters[:2].reshape(1, 2),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                refined_dv, physical_residual = self.residual_action_adapter.refine_parameters(
+                    normalized_residual,
+                    coarse_dv,
+                    lower_bounds,
+                    upper_bounds,
+                    self.latent_tanh_scale,
+                    self.latent_tanh_eps,
+                )
+                latent_refined_parameters = coarse_parameters.copy()
+                latent_refined_parameters[:2] = refined_dv.squeeze(0).detach().cpu().numpy()
             mean = policy_output.mean.to(self.device, dtype=torch.float32)
             log_std = policy_output.log_std.to(self.device, dtype=torch.float32)
             if mean.ndim == 1:
@@ -341,11 +388,12 @@ class MPRMPCPlanner:
             residual_warmup = bool(policy_output.warmup)
             self.residual_attempt_count += 1
 
-        coarse_parameters = np.asarray(
-            [coarse.target_d, coarse.target_speed, coarse.horizon], dtype=np.float32
-        )
         requested = physical_residual.squeeze(0).detach().cpu().numpy()
-        refined_parameters = self.apply_residual_parameters(coarse_parameters, requested)
+        if latent_refined_parameters is None:
+            refined_parameters = self.apply_residual_parameters(coarse_parameters, requested)
+        else:
+            refined_parameters = self.clamp_parameters(latent_refined_parameters)
+            refined_parameters[2] = coarse_parameters[2]
         effective_residual = refined_parameters[:2] - coarse_parameters[:2]
         refined = coarse
         residual_valid = True

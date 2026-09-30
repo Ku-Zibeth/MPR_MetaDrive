@@ -133,6 +133,49 @@ def mlp(in_dim, mlp_dims, out_dim, act=None, dropout=0.):
 	return nn.Sequential(*mlp)
 
 
+class GroupedStateEncoder(nn.Module):
+	"""
+	MetaDrive state encoder with fixed ego/navigation/LiDAR slices.
+	"""
+
+	def __init__(self, cfg):
+		super().__init__()
+		state_cfg = getattr(cfg, "state_encoder", None) or {}
+		get = state_cfg.get if hasattr(state_cfg, "get") else lambda key, default=None: getattr(state_cfg, key, default)
+		self.ego_dim = int(get("ego_dim", 9))
+		self.nav_dim = int(get("nav_dim", 10))
+		self.lidar_dim = int(get("lidar_dim", 240))
+		self.group_embed_dim = int(get("group_embed_dim", 128))
+		self.state_dim = self.ego_dim + self.nav_dim + self.lidar_dim
+		if self.state_dim != 259:
+			raise ValueError(
+				"GroupedStateEncoder expects ego_dim + nav_dim + lidar_dim == 259, "
+				f"got {self.ego_dim} + {self.nav_dim} + {self.lidar_dim} = {self.state_dim}."
+			)
+		self.ego_slice = slice(0, self.ego_dim)
+		self.nav_slice = slice(self.ego_dim, self.ego_dim + self.nav_dim)
+		self.lidar_slice = slice(self.ego_dim + self.nav_dim, self.state_dim)
+		self.ego_encoder = mlp(self.ego_dim, [self.group_embed_dim], self.group_embed_dim)
+		self.nav_encoder = mlp(self.nav_dim, [self.group_embed_dim], self.group_embed_dim)
+		self.lidar_encoder = mlp(self.lidar_dim, [self.group_embed_dim], self.group_embed_dim)
+		self.fusion = mlp(
+			3 * self.group_embed_dim,
+			[cfg.enc_dim],
+			cfg.latent_dim,
+			act=SimNorm(cfg),
+		)
+
+	def forward(self, x):
+		if x.shape[-1] != self.state_dim:
+			raise ValueError(
+				f"GroupedStateEncoder expected last dim {self.state_dim}, got {x.shape[-1]}."
+			)
+		ego = self.ego_encoder(x[..., self.ego_slice])
+		nav = self.nav_encoder(x[..., self.nav_slice])
+		lidar = self.lidar_encoder(x[..., self.lidar_slice])
+		return self.fusion(torch.cat([ego, nav, lidar], dim=-1))
+
+
 def conv(in_shape, num_channels, act=None):
 	"""
 	Basic convolutional encoder for TD-MPC2 with raw image observations.
@@ -156,7 +199,16 @@ def enc(cfg, out={}):
 	"""
 	for k in cfg.obs_shape.keys():
 		if k == 'state':
-			out[k] = mlp(cfg.obs_shape[k][0] + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, act=SimNorm(cfg))
+			state_encoder_cfg = getattr(cfg, "state_encoder", None) or {}
+			grouped = (
+				state_encoder_cfg.get("grouped", False)
+				if hasattr(state_encoder_cfg, "get")
+				else getattr(state_encoder_cfg, "grouped", False)
+			)
+			if grouped:
+				out[k] = GroupedStateEncoder(cfg)
+			else:
+				out[k] = mlp(cfg.obs_shape[k][0] + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, act=SimNorm(cfg))
 		elif k == 'rgb':
 			out[k] = conv(cfg.obs_shape[k], cfg.num_channels, act=SimNorm(cfg))
 		else:
